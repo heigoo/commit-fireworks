@@ -922,133 +922,97 @@
     bgx.fillRect(mx + mr * 0.12, my + mr * 0.02, mr * 0.3, mr * 0.26);
     bgx.fillRect(mx - mr * 0.06, my + mr * 0.42, mr * 0.18, mr * 0.16);
 
-    city = { windows: [] };
     const commits = state.commits && state.commits.length ? state.commits : buildDemo();
 
-    // ---- 每日提交分桶（决定热力图楼形）----
+    // ---- 按周聚合提交数（前层楼高数据源）----
     const DAY = 86400000;
-    const perDay = new Map();
     let minT = Infinity;
     let maxT = -Infinity;
-    let maxCount = 1;
     commits.forEach(function (c) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date)) return;
       const t = Date.UTC(+c.date.slice(0, 4), +c.date.slice(5, 7) - 1, +c.date.slice(8, 10));
-      perDay.set(t, (perDay.get(t) || 0) + 1);
       if (t < minT) minT = t;
       if (t > maxT) maxT = t;
     });
-    perDay.forEach(function (n) { if (n > maxCount) maxCount = n; });
     if (minT === Infinity) { minT = Date.UTC(2026, 0, 5); maxT = minT + 60 * DAY; }
-    const totalDays = Math.max(1, Math.round((maxT - minT) / DAY) + 1);
-
-    // ---- 布局：日柱从左到右按日历排，周与周之间留微隙 ----
-    const padX = 12;
-    const avail = W - padX * 2;
-    let stepX = clamp(avail / totalDays, 2, 27);
-    let dayW = Math.max(1, Math.round(stepX * 0.8));
-    let weekGap = stepX >= 10 ? 2 : 0;
-    let span = totalDays * stepX + Math.floor(totalDays / 7) * weekGap;
-    if (span > avail) { weekGap = 0; span = totalDays * stepX; }
-    if (span > avail) { stepX = Math.max(2, avail / totalDays); dayW = Math.max(1, Math.floor(stepX * 0.78)); }
-
-    // ---- 后层：随机远景天际线（保留纵深）----
-    const blr = mulberry32(11 + Math.round(W));
-    let bx = -20;
-    while (bx < W + 20) {
-      const bw = 26 + blr() * 58;
-      const bh = H * 0.055 + blr() * (H * 0.22 - H * 0.055);
-      const top = H * 0.945 - bh;
-      bgx.fillStyle = "#0e1513";
-      bgx.fillRect(bx, top, bw, bh);
-      if (blr() < 0.22) bgx.fillRect(bx + bw * 0.5, top - 6 - blr() * 12, 1.5, 10);
-      const cols = Math.max(1, Math.floor((bw - 10) / 10));
-      const rows = Math.max(1, Math.floor((bh - 12) / 14));
-      for (let r = 0; r < rows; r += 1) {
-        for (let c = 0; c < cols; c += 1) {
-          const lit = blr() < 0.55;
-          bgx.fillStyle = lit ? "rgba(255,180,84,.34)" : "rgba(255,180,84,.16)";
-          bgx.fillRect(bx + 6 + c * 10, top + 8 + r * 14, 3, 4);
-        }
-      }
-      bx += bw + 6 + blr() * 14;
-    }
-
-    // ---- 前层：热力图天际线（每栋楼 = 一天，楼高 ∝ 当日提交数）----
-    // 基线抬到 HUD 底栏之上，保证点亮的窗户与月份刻度不被播放条遮挡
-    const frontBaseY = H * 0.88;
-    const frontMaxH = H * 0.34;
-    city = { windows: [] };
-    for (let d = 0; d < totalDays; d += 1) {
-      const t = minT + d * DAY;
-      const n = perDay.get(t) || 0;
-      const x = padX + d * stepX + Math.floor(d / 7) * weekGap;
-      if (x > W + 4) break;
-      if (n === 0) {
-        // 空白天：矮基座，保持城市连续
-        bgx.fillStyle = "rgba(13,17,15,.9)";
-        bgx.fillRect(x, frontBaseY - 4, dayW, 4);
-        continue;
-      }
-      const k = n / maxCount;
-      const h = Math.max(10, 8 + k * (frontMaxH - 8));
-      const top = frontBaseY - h;
-      bgx.fillStyle = "#0a0f0d";
-      bgx.fillRect(x, top, dayW, h);
-      // 热度着色：提交越多的日子越亮
-      const heat = bgx.createLinearGradient(0, top, 0, frontBaseY);
-      heat.addColorStop(0, "rgba(67,240,164," + (0.10 + 0.32 * k).toFixed(3) + ")");
-      heat.addColorStop(1, "rgba(67,240,164," + (0.22 + 0.42 * k).toFixed(3) + ")");
-      bgx.fillStyle = heat;
-      bgx.fillRect(x, top, dayW, h);
-      // 未点亮的窗位
-      const slots = Math.min(n, 10);
-      for (let s = 0; s < slots; s += 1) {
-        bgx.fillStyle = "rgba(67,240,164,.10)";
-        bgx.fillRect(x + Math.max(0, (dayW - 3) / 2), frontBaseY - 8 - s * 6, 3, 4);
-      }
-    }
-    // 窗户池按 commit 日期顺序 = 烟花发射顺序：第 N 发点亮第 N 扇窗
-    const winCounts = new Map();
+    const weekCount = Math.max(1, Math.ceil((maxT - minT) / DAY / 7));
+    const weekAgg = new Array(weekCount).fill(0);
+    let maxWeek = 1;
     commits.forEach(function (c) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(c.date)) return;
       const t = Date.UTC(+c.date.slice(0, 4), +c.date.slice(5, 7) - 1, +c.date.slice(8, 10));
       if (t < minT || t > maxT) return;
-      const d = Math.round((t - minT) / DAY);
-      const x = padX + d * stepX + Math.floor(d / 7) * weekGap;
-      const k = winCounts.get(t) || 0;
-      winCounts.set(t, k + 1);
-      if (city.windows.length < 400) {
-        city.windows.push({
-          x: x + Math.max(0, (dayW - 3) / 2),
-          y: frontBaseY - 8 - k * 6,
-          w: 3,
-          h: 4,
-          color: k % 2 === 0 ? "#43f0a4" : "#ffb454"
-        });
-      }
+      const w = Math.min(weekCount - 1, Math.floor((t - minT) / DAY / 7));
+      weekAgg[w] += 1;
+      if (weekAgg[w] > maxWeek) maxWeek = weekAgg[w];
     });
 
-    // ---- 月份刻度（如 GitHub 贡献图）----
-    bgx.font = '10px "Cascadia Code", Consolas, monospace';
-    bgx.textAlign = "left";
-    bgx.textBaseline = "top";
-    const mStart = new Date(minT);
-    let lastLabelX = -60;
-    for (let mi = 0; mi < 60; mi += 1) {
-      const mt = Date.UTC(mStart.getUTCFullYear(), mStart.getUTCMonth() + mi, 1);
-      if (mt > maxT + DAY) break;
-      if (mt < minT) continue;
-      const d = Math.round((mt - minT) / DAY);
-      const x = padX + d * stepX + Math.floor(d / 7) * weekGap;
-      if (x - lastLabelX >= 55) {
-        bgx.fillStyle = "rgba(127,139,143,.7)";
-        bgx.fillText((mStart.getUTCMonth() + mi) % 12 + 1 + "月", x, frontBaseY + 14);
-        lastLabelX = x;
+    // ---- 两层天际线：后层远景随机，前层楼高 = 所在位置的周提交数 ----
+    const winCap = clamp(state.commits.length || 140, 140, 360);
+    const layers = [
+      {
+        baseY: H * 0.945,
+        hMin: H * 0.055,
+        hMax: H * 0.22,
+        color: "#0e1513",
+        win: "rgba(255,180,84,.16)",
+        seed: 11,
+        collect: false
+      },
+      {
+        baseY: H * 0.968,
+        hMin: H * 0.075,
+        hMax: H * 0.32,
+        color: "#090e0c",
+        win: "rgba(67,240,164,.13)",
+        seed: 29,
+        collect: true
       }
-    }
-    bgx.textAlign = "start";
-    bgx.textBaseline = "alphabetic";
+    ];
+    city = { windows: [] };
+    layers.forEach((layer) => {
+      const lr = mulberry32(layer.seed + Math.round(W));
+      let x = -20;
+      while (x < W + 20) {
+        const bw = 26 + lr() * 58;
+        let bh;
+        if (layer.collect) {
+          // 提交越多的周楼越高；0 提交的周给最短楼，保持城市连续
+          const w = Math.min(weekCount - 1, Math.max(0, Math.floor((x / W) * weekCount)));
+          const k = 0.18 + 0.82 * (weekAgg[w] / maxWeek);
+          bh = layer.hMin + k * (layer.hMax - layer.hMin);
+        } else {
+          bh = layer.hMin + lr() * (layer.hMax - layer.hMin);
+        }
+        const top = layer.baseY - bh;
+        bgx.fillStyle = layer.color;
+        bgx.fillRect(x, top, bw, bh);
+        if (lr() < 0.22) {
+          bgx.fillRect(x + bw * 0.5, top - 6 - lr() * 12, 1.5, 10);
+        }
+        const cols = Math.max(1, Math.floor((bw - 10) / 10));
+        const rows = Math.max(1, Math.floor((bh - 12) / 14));
+        for (let r = 0; r < rows; r += 1) {
+          for (let c = 0; c < cols; c += 1) {
+            const wx = x + 6 + c * 10;
+            const wy = top + 8 + r * 14;
+            const lit = lr() < 0.55;
+            bgx.fillStyle = lit ? layer.win.replace(/[\d.]+\)$/, ".34)") : layer.win;
+            bgx.fillRect(wx, wy, 3, 4);
+            if (layer.collect && lit && city.windows.length < winCap) {
+              city.windows.push({
+                x: wx,
+                y: wy,
+                w: 3,
+                h: 4,
+                color: lr() < 0.5 ? "#43f0a4" : "#ffb454"
+              });
+            }
+          }
+        }
+        x += bw + 6 + lr() * 14;
+      }
+    });
 
     bgx.fillStyle = "rgba(67,240,164,.12)";
     bgx.fillRect(0, H * 0.945, W, 1);
