@@ -948,7 +948,6 @@
     });
 
     // ---- 两层天际线：后层远景随机，前层楼高 = 所在位置的周提交数 ----
-    const winCap = clamp(state.commits.length || 140, 140, 360);
     const layers = [
       {
         baseY: H * 0.945,
@@ -972,46 +971,68 @@
     city = { windows: [] };
     layers.forEach((layer) => {
       const lr = mulberry32(layer.seed + Math.round(W));
-      let x = -20;
-      while (x < W + 20) {
+      if (!layer.collect) {
+        // 后层：随机远景
+        let x = -20;
+        while (x < W + 20) {
+          const bw = 26 + lr() * 58;
+          const bh = layer.hMin + lr() * (layer.hMax - layer.hMin);
+          const top = layer.baseY - bh;
+          bgx.fillStyle = layer.color;
+          bgx.fillRect(x, top, bw, bh);
+          if (lr() < 0.22) bgx.fillRect(x + bw * 0.5, top - 6 - lr() * 12, 1.5, 10);
+          const cols = Math.max(1, Math.floor((bw - 10) / 10));
+          const rows = Math.max(1, Math.floor((bh - 12) / 14));
+          for (let r = 0; r < rows; r += 1) {
+            for (let c = 0; c < cols; c += 1) {
+              const wx = x + 6 + c * 10;
+              const wy = top + 8 + r * 14;
+              const lit = lr() < 0.55;
+              bgx.fillStyle = lit ? layer.win.replace(/[\d.]+\)$/, ".34)") : layer.win;
+              bgx.fillRect(wx, wy, 3, 4);
+            }
+          }
+          x += bw + 6 + lr() * 14;
+        }
+        return;
+      }
+      // 前层：两遍 —— 先排布建筑（楼高 = 周提交数），再收集全城可点亮窗格
+      const buildings = [];
+      let bx = -20;
+      while (bx < W + 20) {
         const bw = 26 + lr() * 58;
-        let bh;
-        if (layer.collect) {
-          // 提交越多的周楼越高；0 提交的周给最短楼，保持城市连续
-          const w = Math.min(weekCount - 1, Math.max(0, Math.floor((x / W) * weekCount)));
-          const k = 0.18 + 0.82 * (weekAgg[w] / maxWeek);
-          bh = layer.hMin + k * (layer.hMax - layer.hMin);
-        } else {
-          bh = layer.hMin + lr() * (layer.hMax - layer.hMin);
-        }
-        const top = layer.baseY - bh;
-        bgx.fillStyle = layer.color;
-        bgx.fillRect(x, top, bw, bh);
-        if (lr() < 0.22) {
-          bgx.fillRect(x + bw * 0.5, top - 6 - lr() * 12, 1.5, 10);
-        }
+        const w = Math.min(weekCount - 1, Math.max(0, Math.floor((bx / W) * weekCount)));
+        const k = 0.18 + 0.82 * (weekAgg[w] / maxWeek);
+        const bh = layer.hMin + k * (layer.hMax - layer.hMin);
         const cols = Math.max(1, Math.floor((bw - 10) / 10));
         const rows = Math.max(1, Math.floor((bh - 12) / 14));
-        for (let r = 0; r < rows; r += 1) {
-          for (let c = 0; c < cols; c += 1) {
-            const wx = x + 6 + c * 10;
-            const wy = top + 8 + r * 14;
+        buildings.push({ x: bx, bw, bh, top: layer.baseY - bh, rows, cols });
+        bx += bw + 6 + lr() * 14;
+      }
+      const litCells = [];
+      buildings.forEach(function (b) {
+        bgx.fillStyle = layer.color;
+        bgx.fillRect(b.x, b.top, b.bw, b.bh);
+        if (lr() < 0.22) bgx.fillRect(b.x + b.bw * 0.5, b.top - 6 - lr() * 12, 1.5, 10);
+        for (let r = 0; r < b.rows; r += 1) {
+          for (let c = 0; c < b.cols; c += 1) {
+            const wx = b.x + 6 + c * 10;
+            const wy = b.top + 8 + r * 14;
             const lit = lr() < 0.55;
             bgx.fillStyle = lit ? layer.win.replace(/[\d.]+\)$/, ".34)") : layer.win;
             bgx.fillRect(wx, wy, 3, 4);
-            if (layer.collect && lit && city.windows.length < winCap) {
-              city.windows.push({
-                x: wx,
-                y: wy,
-                w: 3,
-                h: 4,
-                color: lr() < 0.5 ? "#43f0a4" : "#ffb454"
-              });
-            }
+            if (lit) litCells.push({ x: wx, y: wy });
           }
         }
-        x += bw + 6 + lr() * 14;
-      }
+      });
+      // 全城可点亮窗户都入池（超量时均匀抽稀），保证终场整座城市都亮起来
+      const cap = 1200;
+      const pool = litCells.length > cap
+        ? litCells.filter(function (_, i) { return i % Math.ceil(litCells.length / cap) === 0; })
+        : litCells;
+      pool.forEach(function (c, i) {
+        city.windows.push({ x: c.x, y: c.y, w: 3, h: 4, color: i % 2 === 0 ? "#43f0a4" : "#ffb454" });
+      });
     });
 
     bgx.fillStyle = "rgba(67,240,164,.12)";
@@ -1367,9 +1388,11 @@
     const pts = sampleText("1024", 1024);
     const sr = mulberry32(1024);
     const pool = finalePalette(state.commits);
-    finaleParticles = pts.map(function (p) {
-      const sx = W * (0.1 + sr() * 0.8);
-      const sy = H * (0.94 + sr() * 0.08);
+    const wins = city.windows;
+    finaleParticles = pts.map(function (p, i) {
+      const w = wins.length ? wins[i % wins.length] : null;
+      const sx = w ? w.x + w.w / 2 : W * (0.1 + sr() * 0.8);
+      const sy = w ? w.y + w.h / 2 : H * (0.94 + sr() * 0.08);
       return {
         sx: sx,
         sy: sy,
@@ -1399,7 +1422,7 @@
     const total = city.windows.length;
     let count = Math.min(state.burstCount, total);
     if (state.finaleStarted) {
-      const p = clamp((state.time - state.finaleStart) / 2.4, 0, 1);
+      const p = clamp((state.time - state.finaleStart) / 1.2, 0, 1);
       count = Math.round(lerp(count, total, easeOutCubic(p)));
     }
     for (let i = 0; i < count; i += 1) {
