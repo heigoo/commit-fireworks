@@ -1,0 +1,1768 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Commit 烟花 · 1024</title>
+<style>
+  :root {
+    --bg: #040506;
+    --panel: rgba(9, 11, 12, .72);
+    --panel-strong: rgba(13, 16, 17, .96);
+    --line: rgba(255, 255, 255, .09);
+    --line-strong: rgba(255, 255, 255, .17);
+    --text: #e8eef0;
+    --muted: #7f8b8f;
+    --dim: #4d585b;
+    --green: #43f0a4;
+    --green-soft: rgba(67, 240, 164, .12);
+    --amber: #ffb454;
+    --pink: #ff7ab6;
+    --white: #f4f7f5;
+    --mono: "SFMono-Regular", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  #bg, #fx {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  #bg { z-index: 0; }
+  #fx { z-index: 1; }
+  #labels {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .hud {
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .5s ease, transform .5s ease;
+  }
+  body.started .hud { opacity: 1; pointer-events: auto; }
+  body.cinema .hud { opacity: 0 !important; pointer-events: none !important; }
+  #hud-top {
+    position: fixed;
+    z-index: 4;
+    top: 0;
+    left: 0;
+    right: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding: 22px 26px;
+    background: linear-gradient(to bottom, rgba(4, 5, 6, .72), transparent);
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .logo { width: 34px; height: 34px; flex: 0 0 auto; display: block; }
+  .brand-title {
+    font-size: clamp(12px, .55vw, 19px);
+    font-weight: 700;
+    letter-spacing: .24em;
+    color: var(--white);
+    white-space: nowrap;
+  }
+  .brand-sub {
+    margin-top: 5px;
+    font-size: clamp(9px, .36vw, 12px);
+    letter-spacing: .2em;
+    color: var(--dim);
+    white-space: nowrap;
+  }
+  .stats { display: flex; align-items: flex-start; gap: clamp(28px, 2vw, 48px); }
+  .stat { text-align: right; }
+  .stat .k {
+    display: block;
+    font-size: clamp(8.5px, .34vw, 12px);
+    letter-spacing: .2em;
+    color: var(--dim);
+    margin-bottom: 5px;
+    white-space: nowrap;
+  }
+  .stat .v {
+    display: block;
+    font-size: clamp(15px, .62vw, 24px);
+    font-weight: 600;
+    letter-spacing: .06em;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  #hud-bottom {
+    position: fixed;
+    z-index: 4;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 22px 24px 20px;
+    background: linear-gradient(to top, rgba(4, 5, 6, .94), rgba(4, 5, 6, .45) 58%, transparent);
+  }
+  .icon-btn {
+    width: clamp(36px, 2.2vw, 46px);
+    height: clamp(36px, 2.2vw, 46px);
+    flex: 0 0 auto;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    background: rgba(9, 11, 12, .68);
+    color: var(--text);
+    transition: border-color .2s, background .2s, color .2s;
+  }
+  .icon-btn:hover { border-color: rgba(67, 240, 164, .5); color: var(--green); }
+  .icon-btn svg { display: block; width: clamp(15px, .9vw, 19px); height: auto; }
+  .time {
+    flex: 0 0 auto;
+    min-width: 106px;
+    font-size: clamp(11px, .42vw, 15px);
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: .04em;
+  }
+  #seek {
+    flex: 1 1 auto;
+    min-width: 80px;
+    height: 22px;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+  }
+  #seek::-webkit-slider-runnable-track {
+    height: 2px;
+    background: rgba(255, 255, 255, .14);
+    border-radius: 2px;
+  }
+  #seek::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    margin-top: -4px;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 12px rgba(67, 240, 164, .6);
+  }
+  #seek::-moz-range-track {
+    height: 2px;
+    background: rgba(255, 255, 255, .14);
+    border-radius: 2px;
+  }
+  #seek::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    border: 0;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 12px rgba(67, 240, 164, .6);
+  }
+  .speed { display: flex; gap: 4px; flex: 0 0 auto; }
+  .speed button {
+    height: 28px;
+    min-width: 34px;
+    padding: 0 7px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 10px;
+    letter-spacing: .04em;
+    transition: color .2s, border-color .2s, background .2s;
+  }
+  .speed button:hover { color: var(--text); border-color: var(--line-strong); }
+  .speed button.on {
+    color: #04110b;
+    background: var(--green);
+    border-color: var(--green);
+    font-weight: 700;
+  }
+  .btn {
+    height: clamp(34px, 2vw, 44px);
+    padding: 0 clamp(14px, .9vw, 20px);
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--text);
+    font-size: clamp(11px, .55vw, 14px);
+    letter-spacing: .04em;
+    white-space: nowrap;
+    transition: border-color .2s, background .2s, color .2s, transform .12s;
+  }
+  .btn:hover { border-color: var(--line-strong); background: rgba(255, 255, 255, .03); }
+  .btn:active { transform: translateY(1px); }
+  .btn.small { height: clamp(30px, 1.7vw, 38px); padding: 0 clamp(11px, .75vw, 16px); font-size: clamp(10.5px, .5vw, 13px); color: var(--muted); }
+  .btn.primary {
+    border-color: var(--green);
+    background: var(--green);
+    color: #04110b;
+    font-weight: 700;
+    padding: 0 clamp(20px, 1.3vw, 28px);
+    height: clamp(42px, 2.4vw, 54px);
+  }
+  .btn.primary:hover { background: #6bffbc; border-color: #6bffbc; }
+  .btn.ghost { height: clamp(42px, 2.4vw, 54px); padding: 0 clamp(18px, 1.15vw, 24px); }
+  .intro {
+    position: fixed;
+    inset: 0;
+    z-index: 6;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background:
+      radial-gradient(900px 520px at 50% 36%, rgba(67, 240, 164, .08), transparent 66%),
+      rgba(4, 5, 6, .3);
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+    transition: opacity .55s ease, visibility .55s ease;
+  }
+  .intro.hide { opacity: 0; visibility: hidden; pointer-events: none; }
+  .card {
+    position: relative;
+    width: min(100%, clamp(760px, 42vw, 1040px));
+    max-height: calc(100vh - 48px);
+    overflow: auto;
+    padding: clamp(36px, 2.2vw, 56px) clamp(38px, 2.6vw, 64px) clamp(32px, 2vw, 48px);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    background: linear-gradient(180deg, var(--panel-strong), rgba(8, 10, 11, .97));
+    box-shadow: 0 34px 90px rgba(0, 0, 0, .55);
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, .16) transparent;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: clamp(38px, 2.6vw, 64px);
+    right: clamp(38px, 2.6vw, 64px);
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(67, 240, 164, .55), transparent);
+  }
+  .kicker {
+    font-size: clamp(9.5px, .42vw, 13px);
+    letter-spacing: .3em;
+    color: var(--green);
+    text-transform: uppercase;
+  }
+  h1 {
+    margin: 13px 0 14px;
+    font-size: clamp(31px, 3.8vw, 68px);
+    line-height: 1.12;
+    letter-spacing: -.035em;
+    font-weight: 750;
+    color: var(--white);
+  }
+  h1 span { color: var(--green); }
+  .lede {
+    max-width: 60ch;
+    margin: 0;
+    font-size: clamp(12.5px, .68vw, 17px);
+    line-height: 1.95;
+    color: var(--muted);
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+    margin-top: 16px;
+    font-size: clamp(9.5px, .4vw, 13px);
+    letter-spacing: .06em;
+    color: var(--dim);
+  }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 5px; height: 5px; border-radius: 1px; display: inline-block; }
+  .field-label {
+    display: block;
+    margin: 24px 0 8px;
+    font-size: clamp(9.5px, .4vw, 13px);
+    letter-spacing: .18em;
+    color: var(--dim);
+    text-transform: uppercase;
+  }
+  #log {
+    width: 100%;
+    height: clamp(118px, 8vh, 160px);
+    min-height: 92px;
+    max-height: 220px;
+    resize: vertical;
+    padding: 12px 14px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #060808;
+    color: #cfe0dc;
+    font-size: clamp(11.5px, .6vw, 15px);
+    line-height: 1.72;
+    outline: none;
+    transition: border-color .2s, box-shadow .2s;
+  }
+  #log::placeholder { color: #3e494c; }
+  #log:focus {
+    border-color: rgba(67, 240, 164, .5);
+    box-shadow: 0 0 0 3px rgba(67, 240, 164, .07);
+  }
+  .hint {
+    margin-top: 9px;
+    font-size: clamp(9.5px, .4vw, 12.5px);
+    line-height: 1.8;
+    color: var(--dim);
+    word-break: break-word;
+  }
+  .hint code { color: #8fb9a8; font-size: inherit; }
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 18px;
+  }
+  .error {
+    min-height: 17px;
+    margin-top: 10px;
+    font-size: 10.5px;
+    line-height: 1.6;
+    color: #ff8a8a;
+  }
+  .commit-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    max-width: min(430px, 72vw);
+    padding: 6px 9px;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 7px;
+    background: rgba(5, 7, 7, .72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    font-size: 10.5px;
+    line-height: 1.3;
+    color: #cfe0dc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    animation: labelFloat 2.65s ease forwards;
+    pointer-events: none;
+  }
+  .commit-label .dot {
+    width: 5px;
+    height: 5px;
+    flex: 0 0 auto;
+    border-radius: 1px;
+  }
+  .commit-label .hash {
+    flex: 0 0 auto;
+    color: var(--dim);
+    font-size: 9px;
+  }
+  @keyframes labelFloat {
+    0% { opacity: 0; transform: translate(-50%, -38%); }
+    12% { opacity: 1; transform: translate(-50%, -50%); }
+    74% { opacity: 1; transform: translate(-50%, -50%); }
+    100% { opacity: 0; transform: translate(-50%, -66%); }
+  }
+  #finale-caption {
+    position: fixed;
+    z-index: 3;
+    left: 50%;
+    top: 68%;
+    transform: translateX(-50%);
+    font-size: clamp(11px, 1.05vw, 15px);
+    letter-spacing: .24em;
+    color: #cfe0dc;
+    text-align: center;
+    white-space: nowrap;
+    opacity: 0;
+    transition: opacity .8s ease;
+    pointer-events: none;
+    text-shadow: 0 0 24px rgba(67, 240, 164, .32);
+  }
+  #finale-caption.show { opacity: 1; }
+  #finale-caption .byline {
+    margin-top: 10px;
+    font-size: .78em;
+    letter-spacing: .3em;
+    color: rgba(67, 240, 164, .92);
+  }
+  #toast {
+    position: fixed;
+    z-index: 9;
+    left: 50%;
+    bottom: 88px;
+    transform: translate(-50%, 8px);
+    max-width: min(520px, 86vw);
+    padding: 10px 16px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: rgba(9, 11, 12, .9);
+    color: #cfe0dc;
+    font-size: 11px;
+    letter-spacing: .03em;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .3s ease, transform .3s ease;
+  }
+  #toast.show { opacity: 1; transform: translate(-50%, 0); }
+  @media (max-width: 820px) {
+    #hud-top { padding: 16px 16px; gap: 12px; }
+    .stats { gap: 16px; }
+    .stat:nth-child(3) { display: none; }
+    .brand-sub { display: none; }
+    #hud-bottom { flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+    .time { order: 2; min-width: auto; }
+    #seek { order: 3; flex-basis: 100%; }
+    .speed { order: 4; }
+    .btn.small { order: 5; }
+    #btn-sound { order: 6; }
+    .card { padding: 26px 22px 24px; }
+    .card::before { left: 22px; right: 22px; }
+    .intro { padding: 14px; }
+  }
+</style>
+</head>
+<body>
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <canvas id="fx" aria-hidden="true"></canvas>
+  <div id="labels" aria-hidden="true"></div>
+
+  <header id="hud-top" class="hud">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 16 16" shape-rendering="crispEdges" aria-hidden="true">
+        <rect x="7" y="0" width="2" height="3" fill="#43f0a4"/>
+        <rect x="7" y="13" width="2" height="3" fill="#43f0a4"/>
+        <rect x="0" y="7" width="3" height="2" fill="#43f0a4"/>
+        <rect x="13" y="7" width="3" height="2" fill="#43f0a4"/>
+        <rect x="3" y="3" width="2" height="2" fill="#ffb454"/>
+        <rect x="11" y="3" width="2" height="2" fill="#ffb454"/>
+        <rect x="3" y="11" width="2" height="2" fill="#ffb454"/>
+        <rect x="11" y="11" width="2" height="2" fill="#ffb454"/>
+        <rect x="6" y="6" width="4" height="4" fill="#f4f7f5"/>
+        <rect x="7" y="7" width="2" height="2" fill="#040506"/>
+      </svg>
+      <div>
+        <div class="brand-title">COMMIT FIREWORKS</div>
+        <div class="brand-sub">1024 · BUILD IN THE SKY</div>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="k">COMMITS</span><span class="v" id="stat-commits">000</span></div>
+      <div class="stat"><span class="k">FEAT / FIX</span><span class="v" id="stat-featfix">00 / 00</span></div>
+      <div class="stat"><span class="k">ACTIVE DAYS</span><span class="v" id="stat-days">00</span></div>
+    </div>
+  </header>
+
+  <div id="intro" class="intro">
+    <div class="card">
+      <div class="kicker">TRAE 1024 · BUILDER</div>
+      <h1>把一段 <span>git log</span><br>放成一场烟花。</h1>
+      <p class="lede">每个 commit 是一发烟花：颜色是它的类型，大小是它的改动量。播到最后，1024 个粒子会在夜空里拼出「1024」。</p>
+      <div class="legend">
+        <span><i style="background:#43f0a4"></i>feat</span>
+        <span><i style="background:#ffb454"></i>fix</span>
+        <span><i style="background:#5eead4"></i>refactor</span>
+        <span><i style="background:#f4f7f5"></i>docs</span>
+        <span><i style="background:#ff7ab6"></i>test</span>
+        <span><i style="background:#d4ff5e"></i>perf</span>
+        <span><i style="background:#9aa6a5"></i>chore</span>
+      </div>
+      <label class="field-label" for="log">粘贴你的 git log（可选）</label>
+      <textarea id="log" spellcheck="false" placeholder="a1b2c3d|dev|2026-10-12|feat(editor): 新增多光标选择|120|8|5&#10;b2c3d4e|dev|2026-10-13|fix(map): 修复点位聚合偏移|36|12|2"></textarea>
+      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short</code> · 数据只在本地处理 · 最多演示 400 条<br>空格 播放/暂停 · R 重播 · H 隐藏界面</div>
+      <div class="actions">
+        <button id="btn-demo" class="btn ghost">看示例</button>
+        <button id="btn-start" class="btn primary">生成我的烟花</button>
+      </div>
+      <div id="intro-error" class="error" role="alert"></div>
+    </div>
+  </div>
+
+  <div id="hud-bottom" class="hud">
+    <button id="btn-play" class="icon-btn" aria-label="播放"></button>
+    <div id="time" class="time">00:00 / 00:00</div>
+    <input id="seek" type="range" min="0" max="1000" value="0" aria-label="播放进度" />
+    <div class="speed" role="group" aria-label="播放速度">
+      <button type="button" data-speed="0.5">0.5×</button>
+      <button type="button" data-speed="1" class="on">1×</button>
+      <button type="button" data-speed="2">2×</button>
+    </div>
+    <button id="btn-sound" class="icon-btn" aria-label="开启音效"></button>
+    <button id="btn-poster" class="btn small">导出海报</button>
+    <button id="btn-new" class="btn small">换一段</button>
+  </div>
+
+  <div id="finale-caption">
+    <div>1024 · 致敬每一个正在 Build 的人</div>
+    <div class="byline">BUILT WITH TRAE</div>
+  </div>
+  <div id="toast" role="status"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  const $ = (sel) => document.querySelector(sel);
+  const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+
+  function mulberry32(a) {
+    return function () {
+      a |= 0;
+      a = (a + 0x6D2B79F5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  const TYPE_META = {
+    feat: { label: "FEAT", colors: ["#43f0a4", "#9cffd0", "#f4f7f5"] },
+    fix: { label: "FIX", colors: ["#ffb454", "#ffd89a", "#f4f7f5"] },
+    refactor: { label: "REFACTOR", colors: ["#5eead4", "#a7f3e8", "#e8eef0"] },
+    docs: { label: "DOCS", colors: ["#e8eef0", "#b7c4c6"] },
+    test: { label: "TEST", colors: ["#ff7ab6", "#ffb3d4"] },
+    perf: { label: "PERF", colors: ["#d4ff5e", "#ecffad"] },
+    chore: { label: "CHORE", colors: ["#9aa6a5", "#c3cccb"] }
+  };
+
+  const DEMO_SUBJECTS = [
+    ["feat", "editor", "新增多光标选择"],
+    ["fix", "map", "修复点位聚合偏移"],
+    ["refactor", "agent", "拆分工具调用状态机"],
+    ["docs", null, "补充接入与部署说明"],
+    ["perf", "render", "减少重复布局计算"],
+    ["feat", "chat", "支持流式消息增量渲染"],
+    ["fix", "editor", "修复撤销栈合并异常"],
+    ["test", "render", "补齐结果卡片回归用例"],
+    ["chore", "build", "升级构建缓存策略"],
+    ["feat", "scene", "新增夜景光照预设"],
+    ["fix", "chat", "修复历史消息滚动跳动"],
+    ["refactor", "ui", "统一状态标签组件"],
+    ["feat", "map", "支持多边形周边搜索"],
+    ["fix", "agent", "修复子任务取消后状态残留"],
+    ["docs", "api", "补充错误码对照表"],
+    ["perf", "scene", "合并图层绘制批次"],
+    ["feat", "editor", "新增像素网格吸附"],
+    ["fix", "render", "修复折叠区展开闪烁"],
+    ["test", "agent", "补充多代理并发用例"],
+    ["chore", "deps", "更新依赖锁文件"],
+    ["feat", "chat", "新增消息引用与跳转"],
+    ["fix", "map", "修复点位图标重叠"],
+    ["refactor", "render", "抽离卡片渲染管线"],
+    ["feat", "ui", "支持键盘快捷操作"],
+    ["perf", "chat", "降低长列表滚动开销"],
+    ["fix", "editor", "修复导出图片透明底"],
+    ["docs", null, "补充常见问题排查"],
+    ["feat", "scene", "新增城市天际线素材"],
+    ["fix", "agent", "修复工具调用参数丢失"],
+    ["test", "map", "补充聚合边界用例"],
+    ["feat", "render", "新增耗时与 token 展示"],
+    ["fix", "chat", "修复 Agent 回复重复插入"],
+    ["refactor", "editor", "重构画布事件分发"],
+    ["chore", "ci", "精简流水线构建步骤"],
+    ["feat", "map", "新增点位批量治理"],
+    ["fix", "ui", "修复窄屏工具栏溢出"],
+    ["perf", "map", "减少聚合重算频率"],
+    ["feat", "agent", "支持子代理并行执行"],
+    ["docs", "design", "补充交互状态规范"],
+    ["fix", "scene", "修复窗口缩放后模糊"],
+    ["test", "editor", "补充像素导出用例"],
+    ["feat", "chat", "支持结果卡片去重"],
+    ["fix", "render", "修复思考过程折叠高度"],
+    ["refactor", "map", "统一坐标系转换"],
+    ["chore", "build", "修复镜像标签生成"],
+    ["feat", "editor", "新增调色板预设"],
+    ["fix", "chat", "修复断线重连消息缺失"],
+    ["perf", "agent", "减少重复上下文注入"],
+    ["docs", null, "补充版本升级说明"],
+    ["feat", "scene", "新增粒子烟花彩蛋"],
+    ["fix", "editor", "修复拖拽越界"],
+    ["test", "chat", "补充流式渲染快照"],
+    ["feat", "render", "支持 Markdown 表格"],
+    ["fix", "map", "修复搜索范围回显"],
+    ["refactor", "chat", "拆分消息解析与渲染"],
+    ["feat", "ui", "新增空状态引导"],
+    ["perf", "render", "缓存图标映射结果"],
+    ["fix", "agent", "修复超时未终止"],
+    ["docs", null, "补充贡献指南"],
+    ["feat", "scene", "新增 1024 主题色"]
+  ];
+
+  function buildDemo() {
+    const start = Date.UTC(2026, 0, 5);
+    const sr = mulberry32(1024);
+    return DEMO_SUBJECTS.map((item, i) => {
+      const type = item[0];
+      const scope = item[1];
+      const msg = item[2];
+      const day = new Date(start + Math.round(i * 4.8 + sr() * 1.6) * 86400000);
+      const date = day.toISOString().slice(0, 10);
+      const subject = scope ? type + "(" + scope + "): " + msg : type + ": " + msg;
+      const milestone = i > 0 && i % 13 === 0;
+      const ins = milestone ? 620 + Math.round(sr() * 380) : 8 + Math.round(sr() * 180);
+      const del = milestone ? 90 + Math.round(sr() * 120) : Math.round(sr() * 42);
+      const files = milestone ? 18 + Math.round(sr() * 22) : 1 + Math.round(sr() * 14);
+      const hash = (0x1a2b3c + i * 7919).toString(16).slice(0, 7);
+      return {
+        hash: hash,
+        date: date,
+        subject: subject,
+        ins: ins,
+        del: del,
+        files: files,
+        type: type,
+        scope: scope
+      };
+    });
+  }
+
+  function detectType(subject) {
+    const m = subject.match(/^([a-zA-Z]+)(?:\([^)]*\))?!?:/);
+    if (m) {
+      const raw = m[1].toLowerCase();
+      if (raw === "doc") return "docs";
+      if (raw === "build" || raw === "ci" || raw === "style") return "chore";
+      if (TYPE_META[raw]) return raw;
+    }
+    if (/修复|bug|hotfix|fix/i.test(subject)) return "fix";
+    if (/新增|添加|支持|增加|feat|add/i.test(subject)) return "feat";
+    if (/重构|refactor/i.test(subject)) return "refactor";
+    if (/性能|优化|perf/i.test(subject)) return "perf";
+    if (/文档|说明|docs?/i.test(subject)) return "docs";
+    if (/测试|用例|test/i.test(subject)) return "test";
+    return "chore";
+  }
+
+  function parseLog(text) {
+    const lines = String(text).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+    const out = [];
+    for (const line of lines) {
+      const parts = line.split("|").map((s) => s.trim());
+      let hash = "";
+      let author = "";
+      let date = "";
+      let subject = "";
+      let ins = 0;
+      let del = 0;
+      let files = 0;
+      if (parts.length >= 4 && /^[0-9a-f]{4,40}$/i.test(parts[0])) {
+        hash = parts[0];
+        author = parts[1];
+        date = parts[2];
+        subject = parts[3];
+        if (parts.length >= 7) {
+          ins = parseInt(parts[4], 10) || 0;
+          del = parseInt(parts[5], 10) || 0;
+          files = parseInt(parts[6], 10) || 0;
+        }
+      } else {
+        const m = line.match(/^([0-9a-f]{4,40})\s+(.+)$/i);
+        if (!m) continue;
+        hash = m[1];
+        subject = m[2];
+        const dm = subject.match(/^(\d{4}-\d{2}-\d{2})\s+/);
+        if (dm) {
+          date = dm[1];
+          subject = subject.slice(dm[0].length);
+        }
+      }
+      if (!subject) continue;
+      const type = detectType(subject);
+      const scopeMatch = subject.match(/^\w+\(([^)]+)\)/);
+      const scope = scopeMatch ? scopeMatch[1] : null;
+      const hashSeed = parseInt(hash.slice(0, 6), 16) || 0;
+      const rawMag = ins + del || 20 + (hashSeed % 160);
+      out.push({
+        hash: hash,
+        author: author,
+        date: date,
+        subject: subject,
+        ins: ins,
+        del: del,
+        files: files,
+        type: type,
+        scope: scope,
+        rawMag: rawMag
+      });
+    }
+    const dated = out.filter((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date));
+    if (out.length && dated.length === out.length) {
+      out.sort((a, b) => a.date.localeCompare(b.date));
+    } else {
+      out.reverse();
+    }
+    out.forEach((c) => {
+      c.mag = clamp(Math.log1p(c.rawMag) / Math.log1p(900), 0.08, 1);
+    });
+    return out.slice(-400);
+  }
+
+  const bg = $("#bg");
+  const fxc = $("#fx");
+  const bgx = bg.getContext("2d");
+  const fx = fxc.getContext("2d");
+
+  let W = 0;
+  let H = 0;
+  let DPR = 1;
+  let city = { windows: [] };
+
+  const state = {
+    commits: [],
+    started: false,
+    playing: false,
+    speed: 1,
+    muted: true,
+    time: 0,
+    duration: 1,
+    finaleStart: 1,
+    finaleStarted: false,
+    launchIdx: 0,
+    burstCount: 0,
+    lastLabelAt: -999,
+    labelBoxes: [],
+    capOn: false
+  };
+
+  const rockets = [];
+  const sparks = [];
+  const flashes = [];
+  let finaleParticles = [];
+  let scrubbing = false;
+  let ambientClock = 0;
+  let ambientNext = 0.6;
+
+  function resize() {
+    DPR = Math.min(2, window.devicePixelRatio || 1);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    [bg, fxc].forEach((c) => {
+      c.width = Math.round(W * DPR);
+      c.height = Math.round(H * DPR);
+      c.style.width = W + "px";
+      c.style.height = H + "px";
+    });
+    bgx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    fx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    buildScene();
+    if (state.started) {
+      seek(state.time, true);
+      draw();
+    } else {
+      draw();
+    }
+  }
+
+  function buildScene() {
+    bgx.clearRect(0, 0, W, H);
+    const sky = bgx.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, "#040506");
+    sky.addColorStop(0.55, "#07090a");
+    sky.addColorStop(1, "#0b0e0d");
+    bgx.fillStyle = sky;
+    bgx.fillRect(0, 0, W, H);
+
+    const glow = bgx.createRadialGradient(W * 0.5, H * 0.82, 0, W * 0.5, H * 0.82, Math.max(W, H) * 0.7);
+    glow.addColorStop(0, "rgba(67,240,164,.1)");
+    glow.addColorStop(0.42, "rgba(67,240,164,.026)");
+    glow.addColorStop(1, "rgba(0,0,0,0)");
+    bgx.fillStyle = glow;
+    bgx.fillRect(0, 0, W, H);
+
+    const horizon = bgx.createLinearGradient(0, H * 0.82, 0, H);
+    horizon.addColorStop(0, "rgba(67,240,164,0)");
+    horizon.addColorStop(0.72, "rgba(67,240,164,.055)");
+    horizon.addColorStop(1, "rgba(255,180,84,.04)");
+    bgx.fillStyle = horizon;
+    bgx.fillRect(0, H * 0.82, W, H * 0.18);
+
+    const rnd = mulberry32(1024);
+    for (let i = 0; i < 240; i += 1) {
+      const x = rnd() * W;
+      const y = rnd() * H * 0.72;
+      const r = rnd() < 0.93 ? 1 : 2;
+      const a = 0.13 + rnd() * 0.48;
+      bgx.fillStyle = "rgba(232,238,240," + a + ")";
+      bgx.fillRect(x, y, r, r);
+    }
+
+    const mx = W * 0.82;
+    const my = H * 0.2;
+    const mr = Math.min(W, H) * 0.035;
+    const mg = bgx.createRadialGradient(mx, my, 0, mx, my, mr * 3.4);
+    mg.addColorStop(0, "rgba(244,247,245,.14)");
+    mg.addColorStop(0.28, "rgba(244,247,245,.055)");
+    mg.addColorStop(1, "rgba(244,247,245,0)");
+    bgx.fillStyle = mg;
+    bgx.beginPath();
+    bgx.arc(mx, my, mr * 3.4, 0, Math.PI * 2);
+    bgx.fill();
+    bgx.fillStyle = "rgba(244,247,245,.9)";
+    bgx.beginPath();
+    bgx.arc(mx, my, mr, 0, Math.PI * 2);
+    bgx.fill();
+    bgx.fillStyle = "rgba(150,160,158,.32)";
+    bgx.fillRect(mx - mr * 0.34, my - mr * 0.24, mr * 0.24, mr * 0.22);
+    bgx.fillRect(mx + mr * 0.12, my + mr * 0.02, mr * 0.3, mr * 0.26);
+    bgx.fillRect(mx - mr * 0.06, my + mr * 0.42, mr * 0.18, mr * 0.16);
+
+    city = { windows: [] };
+    const winCap = clamp(state.commits.length || 140, 140, 360);
+    const layers = [
+      {
+        baseY: H * 0.945,
+        hMin: H * 0.055,
+        hMax: H * 0.22,
+        color: "#0e1513",
+        win: "rgba(255,180,84,.16)",
+        seed: 11,
+        collect: false
+      },
+      {
+        baseY: H * 0.968,
+        hMin: H * 0.075,
+        hMax: H * 0.32,
+        color: "#090e0c",
+        win: "rgba(67,240,164,.13)",
+        seed: 29,
+        collect: true
+      }
+    ];
+    layers.forEach((layer) => {
+      const lr = mulberry32(layer.seed + Math.round(W));
+      let x = -20;
+      while (x < W + 20) {
+        const bw = 26 + lr() * 58;
+        const bh = layer.hMin + lr() * (layer.hMax - layer.hMin);
+        const top = layer.baseY - bh;
+        bgx.fillStyle = layer.color;
+        bgx.fillRect(x, top, bw, bh);
+        if (lr() < 0.22) {
+          bgx.fillRect(x + bw * 0.5, top - 6 - lr() * 12, 1.5, 10);
+        }
+        const cols = Math.max(1, Math.floor((bw - 10) / 10));
+        const rows = Math.max(1, Math.floor((bh - 12) / 14));
+        for (let r = 0; r < rows; r += 1) {
+          for (let c = 0; c < cols; c += 1) {
+            const wx = x + 6 + c * 10;
+            const wy = top + 8 + r * 14;
+            const lit = lr() < 0.55;
+            bgx.fillStyle = lit ? layer.win.replace(/[\d.]+\)$/, ".34)") : layer.win;
+            bgx.fillRect(wx, wy, 3, 4);
+            if (layer.collect && lit && city.windows.length < winCap) {
+              city.windows.push({
+                x: wx,
+                y: wy,
+                w: 3,
+                h: 4,
+                color: lr() < 0.5 ? "#43f0a4" : "#ffb454"
+              });
+            }
+          }
+        }
+        x += bw + 6 + lr() * 14;
+      }
+    });
+
+    bgx.fillStyle = "rgba(67,240,164,.12)";
+    bgx.fillRect(0, H * 0.945, W, 1);
+
+    const vignette = bgx.createRadialGradient(W * 0.5, H * 0.55, Math.min(W, H) * 0.2, W * 0.5, H * 0.55, Math.max(W, H) * 0.78);
+    vignette.addColorStop(0, "rgba(0,0,0,0)");
+    vignette.addColorStop(1, "rgba(0,0,0,.5)");
+    bgx.fillStyle = vignette;
+    bgx.fillRect(0, 0, W, H);
+  }
+
+  function prepare(commits) {
+    state.commits = commits;
+    commits.forEach(function (c) {
+      if (!Number.isFinite(c.mag)) {
+        const raw = (c.ins || 0) + (c.del || 0) || 20 + ((parseInt(c.hash, 16) || 0) % 160);
+        c.mag = clamp(Math.log1p(raw) / Math.log1p(900), 0.08, 1);
+      }
+    });
+    const n = commits.length;
+    const sr = mulberry32(1024 + n * 7);
+    const gap = clamp(24 / Math.max(1, n), 0.12, 0.9);
+    let t = 0.7;
+    commits.forEach((c) => {
+      c.launchAt = t + sr() * gap * 0.35;
+      c.flight = 0.82 + c.mag * 0.38 + sr() * 0.12;
+      t += gap;
+    });
+    let lastBurst = 0;
+    commits.forEach((c) => {
+      lastBurst = Math.max(lastBurst, c.launchAt + c.flight);
+    });
+    state.finaleStart = lastBurst + 0.25;
+    state.duration = state.finaleStart + 5.8;
+    state.time = 0;
+    state.playing = false;
+    state.finaleStarted = false;
+    state.launchIdx = 0;
+    state.burstCount = 0;
+    state.lastLabelAt = -999;
+    resetEffects();
+  }
+
+  function resetEffects() {
+    rockets.length = 0;
+    sparks.length = 0;
+    flashes.length = 0;
+    finaleParticles = [];
+    state.finaleStarted = false;
+    state.launchIdx = 0;
+    state.burstCount = 0;
+    state.lastLabelAt = -999;
+    state.labelBoxes = [];
+    state.capOn = false;
+    $("#labels").innerHTML = "";
+    $("#finale-caption").classList.remove("show");
+    fx.clearRect(0, 0, W, H);
+  }
+
+  function start(commits) {
+    if (!commits || !commits.length) return;
+    prepare(commits);
+    buildScene();
+    state.started = true;
+    state.playing = true;
+    state.time = 0;
+    document.body.classList.add("started");
+    document.body.classList.remove("cinema");
+    $("#intro").classList.add("hide");
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    updateStats();
+    updateHUD();
+    updatePlayButton();
+    const feat = commits.filter((c) => c.type === "feat").length;
+    const fix = commits.filter((c) => c.type === "fix").length;
+    showToast("已载入 " + commits.length + " 个提交 · " + feat + " feat · " + fix + " fix");
+  }
+
+  function seek(target, silent) {
+    if (!state.started) return;
+    const t = clamp(target, 0, state.duration);
+    const wasPlaying = state.playing;
+    resetEffects();
+    state.time = 0;
+    const step = 1 / 60;
+    let guard = 0;
+    while (state.time < t - 1e-6 && guard < 9000) {
+      advance(step, false);
+      guard += 1;
+    }
+    state.time = Math.min(t, state.duration);
+    state.playing = wasPlaying && state.time < state.duration;
+    if (!silent) {
+      updateHUD();
+      updatePlayButton();
+      draw();
+    }
+  }
+
+  function spawnRocket(c, ambient) {
+    const startX = W * (0.1 + Math.random() * 0.8);
+    const startY = H * (0.93 + Math.random() * 0.03);
+    const targetX = clamp(startX + (Math.random() - 0.5) * W * 0.14, W * 0.07, W * 0.93);
+    const targetY = H * (ambient ? 0.24 + Math.random() * 0.24 : 0.17 + Math.random() * 0.32);
+    rockets.push({
+      c: c,
+      ambient: !!ambient,
+      sx: startX,
+      sy: startY,
+      x: startX,
+      y: startY,
+      px: startX,
+      py: startY,
+      tx: targetX,
+      ty: targetY,
+      t: 0,
+      flight: ambient ? 1.15 + Math.random() * 0.35 : 0.82 + c.mag * 0.38 + Math.random() * 0.12,
+      seed: Math.random() * 10,
+      color: TYPE_META[c.type].colors[0]
+    });
+  }
+
+  function burst(rocket, visual) {
+    const c = rocket.c;
+    const base = TYPE_META[c.type].colors;
+    const mag = rocket.ambient ? 0.4 : c.mag;
+    if (!rocket.ambient) {
+      state.burstCount += 1;
+      if (visual) {
+        addLabel(c, rocket.tx, rocket.ty, base[0]);
+        playBoom(mag);
+      }
+    }
+    const scale = clamp(Math.min(W, H) / 900, 0.62, 1.45);
+    const count = Math.round((70 + mag * 130) * (rocket.ambient ? 0.62 : 1));
+    for (let i = 0; i < count; i += 1) {
+      if (sparks.length > 2900) break;
+      const angle = Math.random() * Math.PI * 2;
+      const speed = (34 + Math.random() * 168) * (0.72 + mag * 0.8) * scale;
+      sparks.push({
+        x: rocket.tx,
+        y: rocket.ty,
+        px: rocket.tx,
+        py: rocket.ty,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 18 * scale,
+        life: 0,
+        ttl: 1.15 + Math.random() * 1.25,
+        color: base[(Math.random() * base.length) | 0],
+        size: (1 + Math.random() * 2.1) * clamp(scale, 0.8, 1.2),
+        gravity: 52 * scale,
+        drag: 0.986,
+        twinkle: Math.random() < 0.26,
+        seed: Math.random() * 10
+      });
+    }
+    if (!rocket.ambient && mag > 0.55) {
+      const ringCount = 34;
+      for (let i = 0; i < ringCount; i += 1) {
+        const a = (i / ringCount) * Math.PI * 2;
+        const speed = (86 + mag * 42) * scale;
+        sparks.push({
+          x: rocket.tx,
+          y: rocket.ty,
+          px: rocket.tx,
+          py: rocket.ty,
+          vx: Math.cos(a) * speed,
+          vy: Math.sin(a) * speed,
+          life: 0,
+          ttl: 1.5 + Math.random() * 0.5,
+          color: base[1],
+          size: 1.2 + Math.random() * 1.2,
+          gravity: 24 * scale,
+          drag: 0.99,
+          twinkle: false,
+          seed: Math.random() * 10
+        });
+      }
+    }
+    flashes.push({
+      x: rocket.tx,
+      y: rocket.ty,
+      life: 0,
+      ttl: 0.3,
+      color: base[0],
+      r: (36 + mag * 96) * scale
+    });
+  }
+
+  function advance(dt, visual) {
+    if (!state.started) return;
+    state.time = Math.min(state.duration, state.time + dt);
+    while (state.launchIdx < state.commits.length && state.time >= state.commits[state.launchIdx].launchAt) {
+      spawnRocket(state.commits[state.launchIdx], false);
+      state.launchIdx += 1;
+    }
+    updateRockets(dt, visual);
+    updateSparks(dt);
+    updateFinaleCaption();
+    if (!state.finaleStarted && state.time >= state.finaleStart) {
+      state.finaleStarted = true;
+      buildFinale();
+    }
+    if (state.time >= state.duration) {
+      state.playing = false;
+      updatePlayButton();
+    }
+  }
+
+  function updateRockets(dt, visual) {
+    for (let i = rockets.length - 1; i >= 0; i -= 1) {
+      const r = rockets[i];
+      r.t += dt;
+      const p = clamp(r.t / r.flight, 0, 1);
+      r.px = r.x;
+      r.py = r.y;
+      r.x = lerp(r.sx, r.tx, easeOutCubic(p)) + Math.sin(p * Math.PI * 3 + r.seed) * 2 * (1 - p);
+      r.y = lerp(r.sy, r.ty, 1 - Math.pow(1 - p, 1.65));
+      if (p >= 1) {
+        burst(r, visual);
+        rockets.splice(i, 1);
+      }
+    }
+  }
+
+  function updateSparks(dt) {
+    for (let i = sparks.length - 1; i >= 0; i -= 1) {
+      const s = sparks[i];
+      s.px = s.x;
+      s.py = s.y;
+      const damp = Math.pow(s.drag, dt * 60);
+      s.vx *= damp;
+      s.vy = s.vy * damp + s.gravity * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.life += dt;
+      if (s.life >= s.ttl || s.y > H + 50) sparks.splice(i, 1);
+    }
+    for (let i = flashes.length - 1; i >= 0; i -= 1) {
+      flashes[i].life += dt;
+      if (flashes[i].life >= flashes[i].ttl) flashes.splice(i, 1);
+    }
+  }
+
+  function addLabel(c, x, y, color) {
+    if (state.time - state.lastLabelAt < 0.6) return;
+    state.lastLabelAt = state.time;
+    state.labelBoxes = state.labelBoxes.filter(function (b) { return state.time < b.until; });
+    const short = c.subject.length > 46 ? c.subject.slice(0, 46) + "…" : c.subject;
+    let textW = 0;
+    for (let k = 0; k < short.length; k += 1) {
+      textW += /[\u3400-\u9fff]/.test(short[k]) ? 10.5 : 6.6;
+    }
+    const width = Math.min(430, Math.max(160, textW + 78));
+    const cx = clamp(x, width / 2 + 16, W - width / 2 - 16);
+    const baseY = clamp(y, 86, H - 142);
+    let placed = false;
+    let finalY = baseY;
+    const offsets = [0, -34, 34, -68, 68, -102, 102];
+    for (let i = 0; i < offsets.length; i += 1) {
+      const box = { x: cx - width / 2, y: baseY + offsets[i] - 15, w: width, h: 30 };
+      let hit = false;
+      for (let j = 0; j < state.labelBoxes.length; j += 1) {
+        const b = state.labelBoxes[j];
+        if (box.x < b.x + b.w + 8 && box.x + box.w + 8 > b.x && box.y < b.y + b.h + 6 && box.y + box.h + 6 > b.y) {
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) {
+        finalY = baseY + offsets[i];
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) return;
+    state.labelBoxes.push({ x: cx - width / 2, y: finalY - 15, w: width, h: 30, until: state.time + 2.7 });
+    const el = document.createElement("div");
+    el.className = "commit-label";
+    el.innerHTML =
+      '<span class="dot" style="background:' + color + '"></span>' +
+      '<span class="hash">' + escapeHtml(c.hash) + "</span>" +
+      "<span>" + escapeHtml(short) + "</span>";
+    el.style.left = cx + "px";
+    el.style.top = clamp(finalY, 86, H - 142) + "px";
+    $("#labels").appendChild(el);
+    window.setTimeout(function () { el.remove(); }, 2700);
+  }
+
+  function sampleText(text, count) {
+    const c = document.createElement("canvas");
+    c.width = 900;
+    c.height = 320;
+    const g = c.getContext("2d");
+    g.fillStyle = "#fff";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.font = '900 230px "Cascadia Code", Consolas, "Courier New", monospace';
+    g.fillText(text, 450, 166);
+    const data = g.getImageData(0, 0, 900, 320).data;
+    const raw = [];
+    for (let y = 0; y < 320; y += 5) {
+      for (let x = 0; x < 900; x += 5) {
+        if (data[(y * 900 + x) * 4 + 3] > 120) raw.push([x, y]);
+      }
+    }
+    const scale = clamp(Math.min((W * 0.7) / 900, (H * 0.45) / 320), 0.35, 3);
+    const ox = W / 2 - 450 * scale;
+    const oy = H * 0.42 - 160 * scale;
+    const pts = raw.map(function (pair) {
+      return { x: ox + pair[0] * scale, y: oy + pair[1] * scale };
+    });
+    if (!pts.length) {
+      for (let i = 0; i < count; i += 1) {
+        const a = (i / count) * Math.PI * 2;
+        pts.push({ x: W / 2 + Math.cos(a) * W * 0.2, y: H * 0.42 + Math.sin(a) * H * 0.14 });
+      }
+    }
+    const sr = mulberry32(1024 + Math.round(W));
+    const order = pts.map(function (_, i) { return i; });
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = (sr() * (i + 1)) | 0;
+      const tmp = order[i];
+      order[i] = order[j];
+      order[j] = tmp;
+    }
+    const chosen = [];
+    for (let i = 0; i < count; i += 1) {
+      const p = pts[order[i % order.length]];
+      chosen.push({ x: p.x + (sr() - 0.5) * 1.2, y: p.y + (sr() - 0.5) * 1.2 });
+    }
+    return chosen;
+  }
+
+  function finalePalette(commits) {
+    const GREEN = TYPE_META.feat.colors[0];
+    if (!commits || !commits.length) return [GREEN, TYPE_META.fix.colors[0], "#f4f7f5"];
+    const boost = { feat: 1.6, fix: 1.1 };
+    const count = {};
+    commits.forEach(function (c) { count[c.type] = (count[c.type] || 0) + 1; });
+    const pool = [];
+    Object.keys(count).forEach(function (type) {
+      const n = Math.max(1, Math.round(count[type] * (boost[type] || 0.5)));
+      for (let i = 0; i < n; i += 1) pool.push(TYPE_META[type].colors[0]);
+    });
+    let green = pool.filter(function (c) { return c === GREEN; }).length;
+    while (green < Math.ceil(pool.length * 0.5)) { pool.push(GREEN); green += 1; }
+    return pool;
+  }
+
+  function buildFinale() {
+    const pts = sampleText("1024", 1024);
+    const sr = mulberry32(1024);
+    const pool = finalePalette(state.commits);
+    finaleParticles = pts.map(function (p) {
+      const sx = W * (0.1 + sr() * 0.8);
+      const sy = H * (0.94 + sr() * 0.08);
+      return {
+        sx: sx,
+        sy: sy,
+        px: sx,
+        py: sy,
+        tx: p.x,
+        ty: p.y,
+        delay: sr() * 0.7,
+        rise: 2 + sr() * 0.4,
+        tPrev: -1,
+        color: pool[(sr() * pool.length) | 0],
+        size: 1 + sr() * 1.4,
+        seed: sr() * 10
+      };
+    });
+  }
+
+  function updateFinaleCaption() {
+    const show = state.finaleStarted && state.time >= state.finaleStart + 3.0 && state.time < state.finaleStart + 5.2;
+    if (show !== state.capOn) {
+      state.capOn = show;
+      $("#finale-caption").classList.toggle("show", show);
+    }
+  }
+
+  function drawLitWindows() {
+    const total = city.windows.length;
+    let count = Math.min(state.burstCount, total);
+    if (state.finaleStarted) {
+      const p = clamp((state.time - state.finaleStart) / 2.4, 0, 1);
+      count = Math.round(lerp(count, total, easeOutCubic(p)));
+    }
+    for (let i = 0; i < count; i += 1) {
+      const w = city.windows[i];
+      fx.globalAlpha = 0.85;
+      fx.fillStyle = w.color;
+      fx.fillRect(w.x, w.y, w.w, w.h);
+      fx.globalAlpha = 0.12;
+      fx.fillRect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
+    }
+    fx.globalAlpha = 1;
+  }
+
+  function drawRockets() {
+    for (let i = 0; i < rockets.length; i += 1) {
+      const r = rockets[i];
+      fx.globalAlpha = 0.58;
+      fx.strokeStyle = r.color;
+      fx.lineWidth = 1.2;
+      fx.beginPath();
+      fx.moveTo(r.px, r.py);
+      fx.lineTo(r.x, r.y);
+      fx.stroke();
+      fx.globalAlpha = 0.18;
+      fx.fillStyle = r.color;
+      fx.fillRect(r.x - 3, r.y - 3, 6, 6);
+      fx.globalAlpha = 1;
+      fx.fillStyle = "#f4f7f5";
+      fx.fillRect(r.x - 1, r.y - 1, 2, 2);
+    }
+  }
+
+  function drawSparks() {
+    for (let i = 0; i < sparks.length; i += 1) {
+      const s = sparks[i];
+      const lifeRatio = s.life / s.ttl;
+      let alpha = Math.pow(1 - lifeRatio, 1.35);
+      if (s.twinkle) alpha *= 0.62 + 0.38 * Math.sin(s.life * 28 + s.seed * 9);
+      if (alpha <= 0) continue;
+      fx.globalAlpha = alpha * 0.35;
+      fx.strokeStyle = s.color;
+      fx.lineWidth = 1;
+      fx.beginPath();
+      fx.moveTo(s.px, s.py);
+      fx.lineTo(s.x, s.y);
+      fx.stroke();
+      fx.globalAlpha = alpha;
+      fx.fillStyle = s.color;
+      fx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
+    }
+    fx.globalAlpha = 1;
+  }
+
+  function drawFlashes() {
+    for (let i = 0; i < flashes.length; i += 1) {
+      const f = flashes[i];
+      const p = f.life / f.ttl;
+      const alpha = (1 - p) * 0.24;
+      const r = f.r * (0.7 + p * 0.7);
+      const grad = fx.createRadialGradient(f.x, f.y, 0, f.x, f.y, r);
+      grad.addColorStop(0, f.color);
+      grad.addColorStop(0.35, f.color);
+      grad.addColorStop(1, "rgba(0,0,0,0)");
+      fx.globalAlpha = alpha;
+      fx.fillStyle = grad;
+      fx.beginPath();
+      fx.arc(f.x, f.y, r, 0, Math.PI * 2);
+      fx.fill();
+    }
+    fx.globalAlpha = 1;
+  }
+
+  function drawFinale() {
+    if (!state.finaleStarted) return;
+    const t = state.time - state.finaleStart;
+    if (t < 0) return;
+    for (let i = 0; i < finaleParticles.length; i += 1) {
+      const p = finaleParticles[i];
+      const local = t - p.delay;
+      if (local < 0) continue;
+      let x;
+      let y;
+      let alpha;
+      if (local < p.rise) {
+        const q = clamp(local / p.rise, 0, 1);
+        y = lerp(p.sy, p.ty, 1 - Math.pow(1 - q, 1.65));
+        x = lerp(p.sx, p.tx, easeOutCubic(q)) + Math.sin(q * Math.PI * 3 + p.seed) * 2 * (1 - q);
+        alpha = clamp(local * 3.5, 0, 1);
+      } else if (local < 4) {
+        x = p.tx;
+        y = p.ty;
+        alpha = 0.82 + 0.18 * Math.sin(local * 10 + p.seed);
+      } else {
+        const q = clamp((local - 4) / 1.6, 0, 1);
+        x = p.tx + (p.tx - W / 2) * q * 0.18;
+        y = p.ty - q * 54 + q * q * 36;
+        alpha = 1 - q;
+      }
+      if (alpha <= 0) continue;
+      // 收束：最后 0.6s 全场粒子淡出到零，保证 duration 冻结时画面干净，不再残留 1024 残影
+      const endFade = t > 5.2 ? clamp(1 - (t - 5.2) / 0.6, 0, 1) : 1;
+      alpha *= endFade;
+      if (alpha <= 0) continue;
+      // 拖尾只连相邻帧：seek 之后首帧的上一位置是陈旧的，直接跳过以免拉出长条
+      const step = p.tPrev < 0 ? 0 : local - p.tPrev;
+      if (step > 0 && step < 0.25 && Math.abs(x - p.px) + Math.abs(y - p.py) > 0.6) {
+        fx.globalAlpha = alpha * 0.35;
+        fx.strokeStyle = p.color;
+        fx.lineWidth = 1;
+        fx.beginPath();
+        fx.moveTo(p.px, p.py);
+        fx.lineTo(x, y);
+        fx.stroke();
+      }
+      p.tPrev = local;
+      p.px = x;
+      p.py = y;
+      fx.globalAlpha = alpha;
+      fx.fillStyle = p.color;
+      fx.fillRect(x - p.size / 2, y - p.size / 2, p.size, p.size);
+      fx.globalAlpha = alpha * 0.07;
+      fx.fillRect(x - p.size * 0.9, y - p.size * 0.9, p.size * 1.8, p.size * 1.8);
+    }
+    fx.globalAlpha = 1;
+  }
+
+  function draw() {
+    fx.clearRect(0, 0, W, H);
+    fx.globalCompositeOperation = "lighter";
+    drawLitWindows();
+    drawFlashes();
+    drawRockets();
+    drawSparks();
+    drawFinale();
+    fx.globalCompositeOperation = "source-over";
+    fx.globalAlpha = 1;
+  }
+
+  function updateAmbient(dt) {
+    ambientClock += dt;
+    if (ambientClock > ambientNext) {
+      ambientNext = ambientClock + 1.7 + Math.random() * 2.4;
+      const types = ["feat", "fix", "refactor", "docs"];
+      spawnRocket(
+        {
+          type: types[(Math.random() * types.length) | 0],
+          mag: 0.3 + Math.random() * 0.45,
+          subject: "",
+          hash: ""
+        },
+        true
+      );
+    }
+    updateRockets(dt, false);
+    updateSparks(dt);
+  }
+
+  function fmt(sec) {
+    const s = Math.max(0, Math.floor(sec));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return String(m).padStart(2, "0") + ":" + String(r).padStart(2, "0");
+  }
+
+  function updateStats() {
+    const commits = state.commits;
+    const feat = commits.filter((c) => c.type === "feat").length;
+    const fix = commits.filter((c) => c.type === "fix").length;
+    const days = new Set(commits.map((c) => c.date).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))).size;
+    $("#stat-commits").textContent = String(commits.length).padStart(3, "0");
+    $("#stat-featfix").textContent = String(feat).padStart(2, "0") + " / " + String(fix).padStart(2, "0");
+    $("#stat-days").textContent = days ? String(days).padStart(2, "0") : "—";
+  }
+
+  function updateHUD() {
+    if (!state.started) return;
+    $("#time").textContent = fmt(state.time) + " / " + fmt(state.duration);
+    if (!scrubbing) {
+      const value = state.duration > 0 ? Math.round((state.time / state.duration) * 1000) : 0;
+      $("#seek").value = String(clamp(value, 0, 1000));
+    }
+    updateFinaleCaption();
+  }
+
+  function updatePlayButton() {
+    const btn = $("#btn-play");
+    if (!state.started) {
+      btn.innerHTML = ICONS.play;
+      btn.setAttribute("aria-label", "播放");
+      return;
+    }
+    if (state.playing) {
+      btn.innerHTML = ICONS.pause;
+      btn.setAttribute("aria-label", "暂停");
+    } else if (state.time >= state.duration - 0.05) {
+      btn.innerHTML = ICONS.replay;
+      btn.setAttribute("aria-label", "重新播放");
+    } else {
+      btn.innerHTML = ICONS.play;
+      btn.setAttribute("aria-label", "播放");
+    }
+  }
+
+  function updateSoundButton() {
+    const btn = $("#btn-sound");
+    btn.innerHTML = state.muted ? ICONS.soundOff : ICONS.soundOn;
+    btn.setAttribute("aria-label", state.muted ? "开启音效" : "关闭音效");
+  }
+
+  const ICONS = {
+    play: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M8 5.2v13.6L19 12z" fill="currentColor"/></svg>',
+    pause: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" fill="currentColor"/><rect x="13.4" y="5" width="3.6" height="14" fill="currentColor"/></svg>',
+    replay: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.4 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 2.6v4.6h4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    soundOn: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    soundOff: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+  };
+
+  let actx = null;
+  let master = null;
+  let noiseBuffer = null;
+
+  function initAudio() {
+    if (actx) return;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    actx = new AC();
+    master = actx.createGain();
+    master.gain.value = 0.18;
+    master.connect(actx.destination);
+    const len = Math.floor(actx.sampleRate * 0.25);
+    noiseBuffer = actx.createBuffer(1, len, actx.sampleRate);
+    const ch = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < len; i += 1) {
+      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+    }
+  }
+
+  function playBoom(mag) {
+    if (state.muted || !actx) return;
+    if (actx.state === "suspended") actx.resume();
+    const t = actx.currentTime;
+    const o = actx.createOscillator();
+    const g = actx.createGain();
+    o.type = "sine";
+    o.frequency.setValueAtTime(92 + Math.random() * 38, t);
+    o.frequency.exponentialRampToValueAtTime(38, t + 0.42);
+    g.gain.setValueAtTime(0.3 * (0.5 + mag), t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.58);
+    o.connect(g);
+    g.connect(master);
+    o.start(t);
+    o.stop(t + 0.62);
+    const n = actx.createBufferSource();
+    n.buffer = noiseBuffer;
+    const ng = actx.createGain();
+    ng.gain.setValueAtTime(0.11 * (0.4 + mag), t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    n.connect(ng);
+    ng.connect(master);
+    n.start(t);
+    n.stop(t + 0.32);
+  }
+
+  let toastTimer = 0;
+  function showToast(msg) {
+    const el = $("#toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(function () { el.classList.remove("show"); }, 3200);
+  }
+
+  function showError(msg) {
+    $("#intro-error").textContent = msg;
+  }
+
+  function togglePlay() {
+    if (!state.started) return;
+    if (state.time >= state.duration - 0.05) {
+      seek(0, true);
+      state.playing = true;
+    } else {
+      state.playing = !state.playing;
+    }
+    updatePlayButton();
+  }
+
+  function toggleSound() {
+    state.muted = !state.muted;
+    if (!state.muted) {
+      initAudio();
+      if (actx && actx.state === "suspended") actx.resume();
+    }
+    updateSoundButton();
+  }
+
+  function poster() {
+    if (!state.started) return;
+    const savedTime = state.time;
+    const savedPlaying = state.playing;
+    state.playing = false;
+    seek(state.finaleStart + 3.1, true);
+    draw();
+    const w = 1600;
+    const h = 1000;
+    const c = document.createElement("canvas");
+    c.width = w;
+    c.height = h;
+    const g = c.getContext("2d");
+    g.fillStyle = "#040506";
+    g.fillRect(0, 0, w, h);
+    const scale = Math.max(w / W, h / H);
+    const dw = W * scale;
+    const dh = H * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    g.drawImage(bg, dx, dy, dw, dh);
+    g.drawImage(fxc, dx, dy, dw, dh);
+    let grad = g.createLinearGradient(0, 0, 0, 270);
+    grad.addColorStop(0, "rgba(4,5,6,.94)");
+    grad.addColorStop(1, "rgba(4,5,6,0)");
+    g.fillStyle = grad;
+    g.fillRect(0, 0, w, 270);
+    grad = g.createLinearGradient(0, h - 280, 0, h);
+    grad.addColorStop(0, "rgba(4,5,6,0)");
+    grad.addColorStop(1, "rgba(4,5,6,.95)");
+    g.fillStyle = grad;
+    g.fillRect(0, h - 280, w, 280);
+    g.strokeStyle = "rgba(67,240,164,.35)";
+    g.lineWidth = 2;
+    g.strokeRect(28, 28, w - 56, h - 56);
+    g.textAlign = "left";
+    g.fillStyle = "#f4f7f5";
+    g.font = '700 58px "Cascadia Code", Consolas, monospace';
+    g.fillText("COMMIT FIREWORKS", 72, 112);
+    g.fillStyle = "#43f0a4";
+    g.font = '600 20px "Cascadia Code", Consolas, monospace';
+    g.fillText("1024 · BUILD IN THE SKY", 74, 150);
+    const commits = state.commits;
+    const feat = commits.filter((x) => x.type === "feat").length;
+    const fix = commits.filter((x) => x.type === "fix").length;
+    const days = new Set(commits.map((x) => x.date).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))).size;
+    const dates = commits.map((x) => x.date).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
+    const range = dates.length ? dates[0].replace(/-/g, ".") + " — " + dates[dates.length - 1].replace(/-/g, ".") : "LOCAL GIT LOG";
+    g.fillStyle = "rgba(232,238,240,.88)";
+    g.font = '500 21px "Cascadia Code", Consolas, monospace';
+    g.fillText(commits.length + " COMMITS   ·   " + feat + " FEAT   ·   " + fix + " FIX   ·   " + days + " ACTIVE DAYS", 74, h - 116);
+    g.fillStyle = "rgba(127,139,143,.92)";
+    g.font = '400 16px "Cascadia Code", Consolas, monospace';
+    g.fillText(range + "   ·   DATA STAYS LOCAL", 74, h - 82);
+    g.textAlign = "right";
+    g.fillStyle = "rgba(127,139,143,.92)";
+    g.font = '400 16px "Cascadia Code", Consolas, monospace';
+    g.fillText("BUILT WITH TRAE", w - 72, h - 116);
+    g.fillStyle = "#43f0a4";
+    g.font = '600 18px "Cascadia Code", Consolas, monospace';
+    g.fillText("致敬每一个正在 Build 的人", w - 72, h - 82);
+    g.textAlign = "left";
+    c.toBlob(function (blob) {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.download = "commit-fireworks-1024.png";
+      a.href = url;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+      showToast("已导出 1024 海报");
+    }, "image/png");
+    seek(savedTime, true);
+    state.playing = savedPlaying;
+    updateHUD();
+    updatePlayButton();
+    draw();
+  }
+
+  function useDemo() {
+    showError("");
+    start(buildDemo());
+  }
+
+  function startFromInput() {
+    const text = $("#log").value.trim();
+    let commits;
+    const fallback = !text;
+    if (fallback) {
+      commits = buildDemo();
+    } else {
+      commits = parseLog(text);
+    }
+    if (!commits.length) {
+      showError("没有解析到有效提交。请检查格式，或点「看示例」直接体验。");
+      return;
+    }
+    showError("");
+    start(commits);
+    if (fallback) showToast("未检测到 git log · 正在演示示例数据");
+  }
+
+  $("#btn-demo").addEventListener("click", useDemo);
+  $("#btn-start").addEventListener("click", startFromInput);
+  $("#log").addEventListener("input", function () { showError(""); });
+  $("#btn-play").addEventListener("click", togglePlay);
+  $("#btn-sound").addEventListener("click", toggleSound);
+  $("#btn-poster").addEventListener("click", poster);
+  $("#btn-new").addEventListener("click", function () {
+    state.playing = false;
+    state.started = false;
+    resetEffects();
+    document.body.classList.remove("started", "cinema");
+    $("#intro").classList.remove("hide");
+    updatePlayButton();
+    updateHUD();
+  });
+
+  document.querySelectorAll(".speed button").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      state.speed = parseFloat(btn.getAttribute("data-speed")) || 1;
+      document.querySelectorAll(".speed button").forEach(function (b) { b.classList.toggle("on", b === btn); });
+    });
+  });
+
+  const seekEl = $("#seek");
+  seekEl.addEventListener("pointerdown", function () { scrubbing = true; });
+  seekEl.addEventListener("input", function () {
+    if (!state.started) return;
+    const target = (parseFloat(seekEl.value) / 1000) * state.duration;
+    $("#time").textContent = fmt(target) + " / " + fmt(state.duration);
+  });
+  seekEl.addEventListener("change", function () {
+    if (!state.started) return;
+    const target = (parseFloat(seekEl.value) / 1000) * state.duration;
+    scrubbing = false;
+    state.playing = false;
+    seek(target, false);
+    updatePlayButton();
+  });
+  window.addEventListener("pointerup", function () { scrubbing = false; });
+
+  window.addEventListener("keydown", function (e) {
+    if (e.target && (e.target.tagName === "TEXTAREA" || e.target.tagName === "INPUT")) return;
+    if (e.code === "Space") {
+      e.preventDefault();
+      if (state.started) togglePlay();
+    } else if (e.key === "h" || e.key === "H") {
+      document.body.classList.toggle("cinema");
+    } else if (e.key === "r" || e.key === "R") {
+      if (state.started) {
+        seek(0, true);
+        state.playing = true;
+        updatePlayButton();
+      }
+    }
+  });
+
+  window.addEventListener("resize", resize);
+
+  let lastFrame = performance.now();
+  function frame(now) {
+    const dt = Math.min(0.05, (now - lastFrame) / 1000) * state.speed;
+    lastFrame = now;
+    if (!state.started) {
+      if (!state.commits.length) updateAmbient(dt);
+    } else if (state.playing) {
+      advance(dt, true);
+      updateHUD();
+    }
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  updateSoundButton();
+  updatePlayButton();
+  resize();
+  requestAnimationFrame(frame);
+
+  window.__demo = {
+    state: state,
+    buildDemo: buildDemo,
+    parseLog: parseLog,
+    start: start,
+    seek: function (t) { seek(t, false); },
+    poster: poster,
+    useDemo: useDemo
+  };
+})();
+</script>
+</body>
+</html>
