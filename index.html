@@ -20,7 +20,7 @@
     --line-strong: rgba(255, 255, 255, .17);
     --text: #e8eef0;
     --muted: #7f8b8f;
-    --dim: #4d585b;
+    --dim: #6f7b7e;
     --green: #43f0a4;
     --green-soft: rgba(67, 240, 164, .12);
     --amber: #ffb454;
@@ -321,7 +321,7 @@
     outline: none;
     transition: border-color .2s, box-shadow .2s;
   }
-  #log::placeholder { color: #3e494c; }
+  #log::placeholder { color: #6f7b7e; }
   #log:focus {
     border-color: rgba(67, 240, 164, .5);
     box-shadow: 0 0 0 3px rgba(67, 240, 164, .07);
@@ -1117,14 +1117,45 @@
     const t = clamp(target, 0, state.duration);
     const wasPlaying = state.playing;
     resetEffects();
-    state.time = 0;
+    // 粒子最长寿命约 2.4s（火花）+ 火箭飞行约 1.5s；更早的早已消失，
+    // 只重放最后 4s 即可还原同一帧，避免整段逐帧模拟导致的长卡顿
+    const WINDOW = 4;
+    const from = Math.max(0, t - WINDOW);
+    state.time = from;
+    // 窗口起点前已绽放的 = 前 i 个；i 之后到 from 之间仍在飞行中的火箭要带着
+    // 已飞行时间重建，否则它们永远不会绽放，窗户点亮数会少一截
+    let i = 0;
+    while (i < state.commits.length && state.commits[i].launchAt + state.commits[i].flight < from) i += 1;
+    state.launchIdx = i;
+    state.burstCount = i;
+    while (state.launchIdx < state.commits.length && state.commits[state.launchIdx].launchAt <= from) {
+      const c = state.commits[state.launchIdx];
+      spawnRocket(c, false);
+      const r = rockets[rockets.length - 1];
+      r.t = Math.max(0, from - c.launchAt);
+      const q = clamp(r.t / r.flight, 0, 1);
+      r.px = r.x = lerp(r.sx, r.tx, easeOutCubic(q)) + Math.sin(q * Math.PI * 3 + r.seed) * 2 * (1 - q);
+      r.py = r.y = lerp(r.sy, r.ty, 1 - Math.pow(1 - q, 1.65));
+      state.launchIdx += 1;
+    }
+    if (from >= state.finaleStart) {
+      state.finaleStarted = true;
+      buildFinale();
+    }
     const step = 1 / 60;
+    const guardMax = Math.ceil(WINDOW * 60) + 4;
     let guard = 0;
-    while (state.time < t - 1e-6 && guard < 9000) {
+    while (state.time < t - 1e-6 && guard < guardMax) {
       advance(step, false);
       guard += 1;
     }
     state.time = Math.min(t, state.duration);
+    // 以时间轴为准校准已绽放数，消除 1/60 步长量化造成的 ±1 误差
+    let burst = 0;
+    for (let j = 0; j < state.commits.length; j += 1) {
+      if (state.commits[j].launchAt + state.commits[j].flight <= state.time) burst += 1;
+    }
+    state.burstCount = burst;
     state.playing = wasPlaying && state.time < state.duration;
     if (!silent) {
       updateHUD();
@@ -1150,7 +1181,8 @@
       tx: targetX,
       ty: targetY,
       t: 0,
-      flight: ambient ? 1.15 + Math.random() * 0.35 : 0.82 + c.mag * 0.38 + Math.random() * 0.12,
+      // 复用 prepare() 预算的飞行时长，保证「绽放时刻」可被 seek 精确解析
+      flight: ambient ? 1.15 + Math.random() * 0.35 : c.flight,
       seed: Math.random() * 10,
       color: TYPE_META[c.type].colors[0]
     });
