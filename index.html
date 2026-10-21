@@ -485,7 +485,7 @@
       </div>
       <label class="field-label" for="log">粘贴你的 git log（可选）</label>
       <textarea id="log" spellcheck="false" placeholder="a1b2c3d|dev|2026-10-12|feat(editor): 新增多光标选择|120|8|5&#10;b2c3d4e|dev|2026-10-13|fix(map): 修复点位聚合偏移|36|12|2"></textarea>
-      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short</code> · 数据只在本地处理 · 最多演示 400 条<br>空格 播放/暂停 · R 重播 · H 隐藏界面</div>
+      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short --numstat</code> · 数据只在本地处理 · 最多演示 400 条<br><code>--numstat</code> 才会带上增删行数，烟花大小才等于真实改动量<br>空格 播放/暂停 · R 重播 · H 隐藏界面</div>
       <div class="actions">
         <button id="btn-demo" class="btn ghost">看示例</button>
         <button id="btn-start" class="btn primary">生成我的烟花</button>
@@ -752,54 +752,50 @@
   function parseLog(text) {
     const lines = String(text).split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     const out = [];
+    let cur = null;
     for (const line of lines) {
       const parts = line.split("|").map((s) => s.trim());
-      let hash = "";
-      let author = "";
-      let date = "";
-      let subject = "";
-      let ins = 0;
-      let del = 0;
-      let files = 0;
-      if (parts.length >= 4 && /^[0-9a-f]{4,40}$/i.test(parts[0])) {
-        hash = parts[0];
-        author = parts[1];
-        date = parts[2];
-        subject = parts[3];
+      const isHeader = parts.length >= 4 && /^[0-9a-f]{4,40}$/i.test(parts[0]);
+      // --numstat 明细行：<增>\t<删>\t<文件>（二进制文件为 -）
+      if (cur && /^(-|\d+)[\t ]+(-|\d+)[\t ]+\S/.test(line) && !line.includes("|")) {
+        const ns = line.match(/^(-|\d+)[\t ]+(-|\d+)[\t ]+(.+)$/);
+        cur.ins += ns[1] === "-" ? 0 : parseInt(ns[1], 10) || 0;
+        cur.del += ns[2] === "-" ? 0 : parseInt(ns[2], 10) || 0;
+        cur.files += 1;
+        continue;
+      }
+      const shortMatch = !isHeader ? line.match(/^([0-9a-f]{4,40})[ \t]+(.+)$/i) : null;
+      if (!isHeader && !shortMatch) continue;
+      if (cur && cur.subject) out.push(cur);
+      cur = { hash: "", author: "", date: "", subject: "", ins: 0, del: 0, files: 0 };
+      if (isHeader) {
+        cur.hash = parts[0];
+        cur.author = parts[1];
+        cur.date = parts[2];
+        cur.subject = parts[3];
         if (parts.length >= 7) {
-          ins = parseInt(parts[4], 10) || 0;
-          del = parseInt(parts[5], 10) || 0;
-          files = parseInt(parts[6], 10) || 0;
+          cur.ins = parseInt(parts[4], 10) || 0;
+          cur.del = parseInt(parts[5], 10) || 0;
+          cur.files = parseInt(parts[6], 10) || 0;
         }
       } else {
-        const m = line.match(/^([0-9a-f]{4,40})\s+(.+)$/i);
-        if (!m) continue;
-        hash = m[1];
-        subject = m[2];
-        const dm = subject.match(/^(\d{4}-\d{2}-\d{2})\s+/);
+        cur.hash = shortMatch[1];
+        cur.subject = shortMatch[2];
+        const dm = cur.subject.match(/^(\d{4}-\d{2}-\d{2})[ \t]+/);
         if (dm) {
-          date = dm[1];
-          subject = subject.slice(dm[0].length);
+          cur.date = dm[1];
+          cur.subject = cur.subject.slice(dm[0].length);
         }
       }
-      if (!subject) continue;
-      const type = detectType(subject);
-      const scopeMatch = subject.match(/^\w+\(([^)]+)\)/);
-      const scope = scopeMatch ? scopeMatch[1] : null;
-      const hashSeed = parseInt(hash.slice(0, 6), 16) || 0;
-      const rawMag = ins + del || 20 + (hashSeed % 160);
-      out.push({
-        hash: hash,
-        author: author,
-        date: date,
-        subject: subject,
-        ins: ins,
-        del: del,
-        files: files,
-        type: type,
-        scope: scope,
-        rawMag: rawMag
-      });
+    }
+    if (cur && cur.subject) out.push(cur);
+    for (const c of out) {
+      const type = detectType(c.subject);
+      const scopeMatch = c.subject.match(/^\w+\(([^)]+)\)/);
+      const hashSeed = parseInt(c.hash.slice(0, 6), 16) || 0;
+      c.type = type;
+      c.scope = scopeMatch ? scopeMatch[1] : null;
+      c.rawMag = c.ins + c.del || 20 + (hashSeed % 160);
     }
     const dated = out.filter((c) => /^\d{4}-\d{2}-\d{2}$/.test(c.date));
     if (out.length && dated.length === out.length) {
@@ -1421,14 +1417,28 @@
       const p = clamp((state.time - state.finaleStart) / 1.2, 0, 1);
       count = Math.round(lerp(count, total, easeOutCubic(p)));
     }
+    if (count <= 0) return;
+    // 按颜色批量走 Path2D：上千扇窗从 2×N 次 fillRect 降到 4 次 fill
+    const coreG = new Path2D();
+    const coreA = new Path2D();
+    const haloG = new Path2D();
+    const haloA = new Path2D();
     for (let i = 0; i < count; i += 1) {
       const w = city.windows[i];
-      fx.globalAlpha = 0.85;
-      fx.fillStyle = w.color;
-      fx.fillRect(w.x, w.y, w.w, w.h);
-      fx.globalAlpha = 0.12;
-      fx.fillRect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
+      const green = w.color === "#43f0a4";
+      (green ? coreG : coreA).rect(w.x, w.y, w.w, w.h);
+      (green ? haloG : haloA).rect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
     }
+    fx.globalAlpha = 0.12;
+    fx.fillStyle = "#43f0a4";
+    fx.fill(haloG);
+    fx.fillStyle = "#ffb454";
+    fx.fill(haloA);
+    fx.globalAlpha = 0.85;
+    fx.fillStyle = "#43f0a4";
+    fx.fill(coreG);
+    fx.fillStyle = "#ffb454";
+    fx.fill(coreA);
     fx.globalAlpha = 1;
   }
 
@@ -1835,11 +1845,23 @@
   });
 
   const seekEl = $("#seek");
-  seekEl.addEventListener("pointerdown", function () { scrubbing = true; });
+  let previewAt = 0;
+  seekEl.addEventListener("pointerdown", function () {
+    scrubbing = true;
+    if (state.started) {
+      state.playing = false;
+      updatePlayButton();
+    }
+  });
   seekEl.addEventListener("input", function () {
     if (!state.started) return;
     const target = (parseFloat(seekEl.value) / 1000) * state.duration;
     $("#time").textContent = fmt(target) + " / " + fmt(state.duration);
+    // 拖拽过程中节流重绘，让画面跟着滑块走
+    const now = performance.now();
+    if (now - previewAt < 120) return;
+    previewAt = now;
+    seek(target, false);
   });
   seekEl.addEventListener("change", function () {
     if (!state.started) return;
