@@ -390,17 +390,24 @@
     position: fixed;
     z-index: 3;
     left: 50%;
-    top: 68%;
+    top: 58%;
     transform: translateX(-50%);
+    padding: 11px 26px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: rgba(4, 5, 6, .66);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    box-shadow: 0 12px 40px rgba(0, 0, 0, .45);
     font-size: clamp(11px, 1.05vw, 15px);
     letter-spacing: .24em;
-    color: #cfe0dc;
+    color: #e8f3ef;
     text-align: center;
     white-space: nowrap;
     opacity: 0;
     transition: opacity .8s ease;
     pointer-events: none;
-    text-shadow: 0 0 24px rgba(67, 240, 164, .32);
+    text-shadow: 0 1px 6px rgba(4, 5, 6, .95), 0 0 24px rgba(67, 240, 164, .32);
   }
   #finale-caption.show { opacity: 1; }
   #finale-caption .byline {
@@ -433,7 +440,8 @@
     .stats { gap: 16px; }
     .stat:nth-child(3) { display: none; }
     .brand-sub { display: none; }
-    #hud-bottom { flex-wrap: wrap; gap: 8px; padding: 12px 14px 14px; }
+    #hud-bottom { flex-wrap: wrap; gap: 8px; padding: 12px 14px max(14px, env(safe-area-inset-bottom)); }
+    #toast { bottom: 150px; }
     .time { order: 2; min-width: auto; }
     #seek { order: 3; flex-basis: 100%; }
     .speed { order: 4; }
@@ -448,6 +456,8 @@
     .speed { display: none; }
     .time { display: none; }
     #hud-bottom .btn.small { font-size: 10.5px; padding: 0 9px; }
+    #finale-caption { font-size: 10px; letter-spacing: .16em; padding: 9px 16px; }
+    #finale-caption .byline { margin-top: 6px; letter-spacing: .22em; }
   }
   @media (prefers-reduced-motion: reduce) {
     .hud, .intro, #toast, #finale-caption, .commit-label { transition-duration: .01ms !important; animation-duration: .01ms !important; }
@@ -738,13 +748,22 @@
   ];
 
   function buildDemo() {
-    const start = Date.UTC(2026, 0, 5);
+    // 示例数据贴着「今天」往前长：最后一个 commit 落在当天，避免出现未来日期
+    const now = new Date();
+    const endUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
     const sr = mulberry32(1024);
+    // 先按「工作日节奏」生成真实感日期：约三成提交与前一天同一天，其余间隔 1–6 天
+    let cursor = 0;
+    const dayOffsets = DEMO_SUBJECTS.map((_, i) => {
+      if (i > 0) cursor += sr() < 0.32 ? 0 : 1 + Math.floor(sr() * 6);
+      return cursor;
+    });
+    const span = dayOffsets[dayOffsets.length - 1];
     return DEMO_SUBJECTS.map((item, i) => {
       const type = item[0];
       const scope = item[1];
       const msg = item[2];
-      const day = new Date(start + Math.round(i * 4.8 + sr() * 1.6) * 86400000);
+      const day = new Date(endUtc - (span - dayOffsets[i]) * 86400000);
       const date = day.toISOString().slice(0, 10);
       const subject = scope ? type + "(" + scope + "): " + msg : type + ": " + msg;
       const milestone = i > 0 && i % 13 === 0;
@@ -2096,11 +2115,12 @@
     grad.addColorStop(1, "rgba(4,5,6,0)");
     g.fillStyle = grad;
     g.fillRect(0, 0, w, 270);
-    grad = g.createLinearGradient(0, h - 280, 0, h);
+    grad = g.createLinearGradient(0, h - 360, 0, h);
     grad.addColorStop(0, "rgba(4,5,6,0)");
-    grad.addColorStop(1, "rgba(4,5,6,.95)");
+    grad.addColorStop(.62, "rgba(4,5,6,.72)");
+    grad.addColorStop(1, "rgba(4,5,6,.97)");
     g.fillStyle = grad;
-    g.fillRect(0, h - 280, w, 280);
+    g.fillRect(0, h - 360, w, 360);
     g.strokeStyle = "rgba(67,240,164,.35)";
     g.lineWidth = 2;
     g.strokeRect(28, 28, w - 56, h - 56);
@@ -2117,6 +2137,9 @@
     const days = new Set(commits.map((x) => x.date).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))).size;
     const dates = commits.map((x) => x.date).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)).sort();
     const range = dates.length ? dates[0].replace(/-/g, ".") + " — " + dates[dates.length - 1].replace(/-/g, ".") : "LOCAL GIT LOG";
+    g.shadowColor = "rgba(0,0,0,.9)";
+    g.shadowBlur = 10;
+    g.shadowOffsetY = 1;
     g.fillStyle = "rgba(232,238,240,.88)";
     g.font = '500 21px "Cascadia Code", Consolas, monospace';
     g.fillText(commits.length + " COMMITS   ·   " + feat + " FEAT   ·   " + fix + " FIX   ·   " + days + " ACTIVE DAYS", 74, h - 116);
@@ -2130,6 +2153,9 @@
     g.fillStyle = "#43f0a4";
     g.font = '600 18px "Cascadia Code", Consolas, monospace';
     g.fillText("致敬每一个正在 Build 的人", w - 72, h - 82);
+    g.shadowColor = "transparent";
+    g.shadowBlur = 0;
+    g.shadowOffsetY = 0;
     g.textAlign = "left";
     c.toBlob(function (blob) {
       if (!blob) return;
