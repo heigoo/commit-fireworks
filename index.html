@@ -4,7 +4,7 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Commit 烟花 · 1024</title>
-<meta name="description" content="把一段 git log 放成一场烟花：每个 commit 是一发烟花，颜色是它的类型，大小是真实改动量；城市按提交日期长起来，最后 1024 个粒子从所有窗户升空拼出「1024」。单文件 HTML，数据只在本地处理。" />
+<meta name="description" content="把一段 git log 放成一场烟花：每个 commit 是一发烟花，颜色是它的类型，大小是真实改动量；城市按提交日期长起来，最后 1024 个粒子从所有窗户升空拼出「1024」。单文件 HTML；粘贴的日志只在浏览器内处理，也可一键抓取 GitHub 热门项目的公开提交。" />
 <meta property="og:type" content="website" />
 <meta property="og:title" content="Commit 烟花 · 1024" />
 <meta property="og:description" content="把一段 git log 放成一场烟花。每个 commit 是一发烟花，最后 1024 个粒子从整座城市的窗户升空，拼出「1024」。" />
@@ -347,6 +347,21 @@
     line-height: 1.6;
     color: #ff8a8a;
   }
+  .actions.alt {
+    margin-top: 12px;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .gh-status {
+    flex: 1 1 260px;
+    min-width: 0;
+    margin-top: 4px;
+    font-size: clamp(9.5px, .4vw, 12.5px);
+    line-height: 1.75;
+    color: var(--dim);
+    word-break: break-word;
+  }
+  .btn:disabled { opacity: .55; cursor: progress; }
   .commit-label {
     position: absolute;
     transform: translate(-50%, -50%);
@@ -523,10 +538,14 @@
       </div>
       <label class="field-label" for="log">粘贴你的 git log（可选）</label>
       <textarea id="log" spellcheck="false" placeholder="a1b2c3d|dev|2026-10-12|feat(editor): 新增多光标选择|120|8|5&#10;b2c3d4e|dev|2026-10-13|fix(map): 修复点位聚合偏移|36|12|2"></textarea>
-      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short --numstat</code> · 数据只在本地处理 · 最多演示 400 条<br><code>--numstat</code> 才会带上增删行数，烟花大小才等于真实改动量<br>空格 播放/暂停 · R 重播 · ←/→ 步进 · H 隐藏界面 · 支持 #log= 链接直达</div>
+      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short --numstat</code> · 粘贴的数据只在浏览器内处理 · 最多演示 400 条<br><code>--numstat</code> 才会带上增删行数，烟花大小才等于真实改动量<br>空格 播放/暂停 · R 重播 · ←/→ 步进 · H 隐藏界面 · 支持 #log= 链接直达</div>
       <div class="actions">
         <button id="btn-demo" class="btn ghost">看示例</button>
         <button id="btn-start" class="btn primary">生成我的烟花</button>
+      </div>
+      <div class="actions alt">
+        <button id="btn-github" class="btn ghost">抓取 GitHub 热门项目</button>
+        <span id="gh-status" class="gh-status">从 star 最高的活跃项目里随机取 8 个 · 每仓库 25 条提交 · 匿名接口每小时 60 次</span>
       </div>
       <div id="intro-error" class="error" role="alert"></div>
     </div>
@@ -2275,8 +2294,95 @@
     if (fallback) showToast("未检测到 git log · 正在演示示例数据");
   }
 
+  // ---- GitHub 热门项目抓取：仅点击时触发，走公开匿名接口 ----
+  const GH_API = "https://api.github.com";
+  const GH_SAMPLE = 8;      // 每次参与混合的仓库数（1 次 search + 8 次 commits = 9 次请求）
+  const GH_PER_REPO = 25;   // 每仓库取多少条提交，8×25=200，远低于 400 上限
+  let ghBusy = false;
+
+  function ghGet(path, signal) {
+    return fetch(GH_API + path, {
+      headers: { Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
+      signal: signal
+    }).then(function (res) {
+      if (res.ok) return res.json();
+      if (res.status === 403 || res.status === 429) {
+        const remain = res.headers.get("x-ratelimit-remaining");
+        throw new Error(remain === "0" ? "接口限流（匿名每小时 60 次），请稍后再试" : "请求被拒绝（" + res.status + "）");
+      }
+      throw new Error("接口返回 " + res.status);
+    });
+  }
+
+  // 单条提交 → parseLog 的 4 列格式；丢弃 merge 提交、空主题和无日期提交
+  function commitLine(c) {
+    const meta = c.commit || {};
+    const subject = String(meta.message || "").split("\n")[0].trim();
+    if (!subject || /^merge\b/i.test(subject)) return "";
+    const date = String((meta.author && meta.author.date) || (meta.committer && meta.committer.date) || "").slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+    const author = String((meta.author && meta.author.name) || "dev").replace(/\|/g, "/");
+    return (c.sha || "").slice(0, 7) + "|" + author + "|" + date + "|" + subject;
+  }
+
+  function fetchHotCommits() {
+    if (ghBusy) return;
+    const btn = $("#btn-github");
+    const status = $("#gh-status");
+    const idle = "从 star 最高的活跃项目里随机取 8 个 · 每仓库 25 条提交 · 匿名接口每小时 60 次";
+    ghBusy = true;
+    btn.disabled = true;
+    btn.textContent = "抓取中…";
+    showError("");
+    status.textContent = "正在查询 star 最高的活跃仓库…";
+    const ctrl = new AbortController();
+    const timer = window.setTimeout(function () { ctrl.abort(); }, 15000);
+    const since = new Date(Date.now() - 30 * 86400000).toISOString().slice(0, 10);
+
+    ghGet("/search/repositories?q=stars:>50000+pushed:>" + since + "+archived:false&sort=stars&order=desc&per_page=40", ctrl.signal)
+      .then(function (search) {
+        const pool = (search.items || []).filter(function (r) { return !r.fork && r.full_name; });
+        if (!pool.length) throw new Error("没有找到符合条件的仓库");
+        // top40 里随机抽 8 个：每次点击看到不同的项目组合
+        for (let i = pool.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          const t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+        }
+        const repos = pool.slice(0, GH_SAMPLE);
+        status.textContent = "正在读取 " + repos.map(function (r) { return r.full_name; }).join(" · ") + " 的提交…";
+        return Promise.all(repos.map(function (r) {
+          return ghGet("/repos/" + r.full_name + "/commits?per_page=" + GH_PER_REPO, ctrl.signal)
+            .catch(function (e) { if (e && e.name === "AbortError") throw e; return []; });
+        })).then(function (lists) { return { repos: repos, lists: lists }; });
+      })
+      .then(function (got) {
+        const lines = [];
+        got.lists.forEach(function (list) {
+          list.forEach(function (c) { const line = commitLine(c); if (line) lines.push(line); });
+        });
+        if (!lines.length) throw new Error("抓取到的提交为空，请稍后再试");
+        const text = lines.slice(-400).join("\n");
+        $("#log").value = text;      // 回填输入框：可编辑、可复现，换一段后不清空
+        status.textContent = "已从 " + got.repos.length + " 个仓库抓取 " + lines.length + " 条提交 · 改动量按提交哈希估算";
+        start(parseLog(text));
+        showToast("GitHub 热门项目 · " + lines.length + " 个提交");
+      })
+      .catch(function (err) {
+        const msg = err && err.name === "AbortError" ? "抓取超时，请检查网络后重试" : (err && err.message) || "抓取失败";
+        showError("抓取失败：" + msg);
+        status.textContent = idle;
+      })
+      .finally(function () {
+        window.clearTimeout(timer);
+        ghBusy = false;
+        btn.disabled = false;
+        btn.textContent = "抓取 GitHub 热门项目";
+      });
+  }
+
   $("#btn-demo").addEventListener("click", useDemo);
   $("#btn-start").addEventListener("click", startFromInput);
+  $("#btn-github").addEventListener("click", fetchHotCommits);
   $("#log").addEventListener("input", function () { showError(""); });
   $("#btn-play").addEventListener("click", togglePlay);
   $("#btn-sound").addEventListener("click", toggleSound);
