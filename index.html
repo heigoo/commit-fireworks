@@ -4,6 +4,13 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Commit 烟花 · 1024</title>
+<meta name="description" content="把一段 git log 放成一场烟花：每个 commit 是一发烟花，颜色是它的类型，大小是真实改动量；城市按提交日期长起来，最后 1024 个粒子从所有窗户升空拼出「1024」。单文件 HTML，数据只在本地处理。" />
+<meta property="og:type" content="website" />
+<meta property="og:title" content="Commit 烟花 · 1024" />
+<meta property="og:description" content="把一段 git log 放成一场烟花。每个 commit 是一发烟花，最后 1024 个粒子从整座城市的窗户升空，拼出「1024」。" />
+<meta property="og:image" content="https://heigoo.github.io/commit-fireworks/screenshots/04-poster.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' shape-rendering='crispEdges'%3E%3Crect width='16' height='16' fill='%23040506'/%3E%3Crect x='7' y='0' width='2' height='3' fill='%2343f0a4'/%3E%3Crect x='7' y='13' width='2' height='3' fill='%2343f0a4'/%3E%3Crect x='0' y='7' width='3' height='2' fill='%2343f0a4'/%3E%3Crect x='13' y='7' width='3' height='2' fill='%2343f0a4'/%3E%3Crect x='3' y='3' width='2' height='2' fill='%23ffb454'/%3E%3Crect x='11' y='3' width='2' height='2' fill='%23ffb454'/%3E%3Crect x='3' y='11' width='2' height='2' fill='%23ffb454'/%3E%3Crect x='11' y='11' width='2' height='2' fill='%23ffb454'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%23f4f7f5'/%3E%3C/svg%3E" />
 <style>
   :root {
     --bg: #040506;
@@ -1732,7 +1739,8 @@
     const g = c.getContext("2d");
     g.fillStyle = "#040506";
     g.fillRect(0, 0, w, h);
-    const scale = Math.max(w / W, h / H);
+    // 用 min 缩放完整保留画面（两侧不再被裁掉），上下留少量黑边由渐变盖住
+    const scale = Math.min(w / W, h / H);
     const dw = W * scale;
     const dh = H * scale;
     const dx = (w - dw) / 2;
@@ -1830,7 +1838,10 @@
   $("#btn-new").addEventListener("click", function () {
     state.playing = false;
     state.started = false;
+    // 清空提交数据，让首页的氛围烟花重新跑起来（否则首页是死的）
+    state.commits = [];
     resetEffects();
+    buildScene();
     document.body.classList.remove("started", "cinema");
     $("#intro").classList.remove("hide");
     updatePlayButton();
