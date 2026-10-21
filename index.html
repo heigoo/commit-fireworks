@@ -747,12 +747,12 @@
       if (raw === "build" || raw === "ci" || raw === "style") return "chore";
       if (TYPE_META[raw]) return raw;
     }
-    if (/修复|bug|hotfix|fix/i.test(subject)) return "fix";
-    if (/新增|添加|支持|增加|feat|add/i.test(subject)) return "feat";
-    if (/重构|refactor/i.test(subject)) return "refactor";
-    if (/性能|优化|perf/i.test(subject)) return "perf";
-    if (/文档|说明|docs?/i.test(subject)) return "docs";
-    if (/测试|用例|test/i.test(subject)) return "test";
+    if (/修复|修正|修掉|解决|bug|hotfix|fix/i.test(subject)) return "fix";
+    if (/新增|新加|实现|接入|添加|增加|支持|完善|feat|add/i.test(subject)) return "feat";
+    if (/重构|抽取|拆分|重命名|refactor/i.test(subject)) return "refactor";
+    if (/性能|优化|提速|perf/i.test(subject)) return "perf";
+    if (/测试|单测|用例|test/i.test(subject)) return "test";
+    if (/文档|说明|注释|示例|补充|readme|changelog|docs?/i.test(subject)) return "docs";
     return "chore";
   }
 
@@ -779,11 +779,15 @@
         cur.hash = parts[0];
         cur.author = parts[1];
         cur.date = parts[2];
-        cur.subject = parts[3];
-        if (parts.length >= 7) {
-          cur.ins = parseInt(parts[4], 10) || 0;
-          cur.del = parseInt(parts[5], 10) || 0;
-          cur.files = parseInt(parts[6], 10) || 0;
+        // 提交信息里可能含 "|"：仅当末尾三列都是纯数字时，才当作 增/删/文件 三列，
+        // 否则把第 4 列之后的内容全部并回主题，避免被截断
+        const n = parts.length;
+        const tail = n >= 7 && /^\d+$/.test(parts[n - 3]) && /^\d+$/.test(parts[n - 2]) && /^\d+$/.test(parts[n - 1]);
+        cur.subject = tail ? parts.slice(3, n - 3).join("|") : parts.slice(3).join("|");
+        if (tail) {
+          cur.ins = parseInt(parts[n - 3], 10) || 0;
+          cur.del = parseInt(parts[n - 2], 10) || 0;
+          cur.files = parseInt(parts[n - 1], 10) || 0;
         }
       } else {
         cur.hash = shortMatch[1];
@@ -849,6 +853,7 @@
   let scrubbing = false;
   let ambientClock = 0;
   let ambientNext = 0.6;
+  let ambientSeq = 0;
 
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -1165,13 +1170,17 @@
   }
 
   function spawnRocket(c, ambient) {
-    const startX = W * (0.1 + Math.random() * 0.8);
-    const startY = H * (0.93 + Math.random() * 0.03);
-    const targetX = clamp(startX + (Math.random() - 0.5) * W * 0.14, W * 0.07, W * 0.93);
-    const targetY = H * (ambient ? 0.24 + Math.random() * 0.24 : 0.17 + Math.random() * 0.32);
+    // 用提交哈希派生确定性随机：同一段 log 每次重播、每张导出海报都完全一致
+    const rnd = ambient ? 7919 + (ambientSeq += 1) : ((parseInt(c.hash.slice(0, 6), 16) || 1) * 31 + 7);
+    const rr = mulberry32(rnd);
+    const startX = W * (0.1 + rr() * 0.8);
+    const startY = H * (0.93 + rr() * 0.03);
+    const targetX = clamp(startX + (rr() - 0.5) * W * 0.14, W * 0.07, W * 0.93);
+    const targetY = H * (ambient ? 0.24 + rr() * 0.24 : 0.17 + rr() * 0.32);
     rockets.push({
       c: c,
       ambient: !!ambient,
+      rnd: rnd,
       sx: startX,
       sy: startY,
       x: startX,
@@ -1182,8 +1191,8 @@
       ty: targetY,
       t: 0,
       // 复用 prepare() 预算的飞行时长，保证「绽放时刻」可被 seek 精确解析
-      flight: ambient ? 1.15 + Math.random() * 0.35 : c.flight,
-      seed: Math.random() * 10,
+      flight: ambient ? 1.15 + rr() * 0.35 : c.flight,
+      seed: rr() * 10,
       color: TYPE_META[c.type].colors[0]
     });
   }
@@ -1201,10 +1210,12 @@
     }
     const scale = clamp(Math.min(W, H) / 900, 0.62, 1.45);
     const count = Math.round((70 + mag * 130) * (rocket.ambient ? 0.62 : 1));
+    // 火花散布也用同一颗确定性种子，保证重播/海报逐帧一致
+    const rr = mulberry32((rocket.rnd || 1) + 13);
     for (let i = 0; i < count; i += 1) {
       if (sparks.length > 2900) break;
-      const angle = Math.random() * Math.PI * 2;
-      const speed = (34 + Math.random() * 168) * (0.72 + mag * 0.8) * scale;
+      const angle = rr() * Math.PI * 2;
+      const speed = (34 + rr() * 168) * (0.72 + mag * 0.8) * scale;
       sparks.push({
         x: rocket.tx,
         y: rocket.ty,
@@ -1213,13 +1224,13 @@
         vx: Math.cos(angle) * speed,
         vy: Math.sin(angle) * speed - 18 * scale,
         life: 0,
-        ttl: 1.15 + Math.random() * 1.25,
-        color: base[(Math.random() * base.length) | 0],
-        size: (1 + Math.random() * 2.1) * clamp(scale, 0.8, 1.2),
+        ttl: 1.15 + rr() * 1.25,
+        color: base[(rr() * base.length) | 0],
+        size: (1 + rr() * 2.1) * clamp(scale, 0.8, 1.2),
         gravity: 52 * scale,
         drag: 0.986,
-        twinkle: Math.random() < 0.26,
-        seed: Math.random() * 10
+        twinkle: rr() < 0.26,
+        seed: rr() * 10
       });
     }
     if (!rocket.ambient && mag > 0.55) {
@@ -1235,13 +1246,13 @@
           vx: Math.cos(a) * speed,
           vy: Math.sin(a) * speed,
           life: 0,
-          ttl: 1.5 + Math.random() * 0.5,
+          ttl: 1.5 + rr() * 0.5,
           color: base[1],
-          size: 1.2 + Math.random() * 1.2,
+          size: 1.2 + rr() * 1.2,
           gravity: 24 * scale,
           drag: 0.99,
           twinkle: false,
-          seed: Math.random() * 10
+          seed: rr() * 10
         });
       }
     }
