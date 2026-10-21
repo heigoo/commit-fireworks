@@ -443,6 +443,27 @@
     .card::before { left: 22px; right: 22px; }
     .intro { padding: 14px; }
   }
+  @media (max-width: 560px) {
+    .stat:nth-child(2) { display: none; }
+    .speed { display: none; }
+    .time { display: none; }
+    #hud-bottom .btn.small { font-size: 10.5px; padding: 0 9px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hud, .intro, #toast, #finale-caption, .commit-label { transition-duration: .01ms !important; animation-duration: .01ms !important; }
+  }
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+  #btn-record.recording { color: #ff8a8a; border-color: rgba(255, 138, 138, .55); }
 </style>
 </head>
 <body>
@@ -492,7 +513,7 @@
       </div>
       <label class="field-label" for="log">粘贴你的 git log（可选）</label>
       <textarea id="log" spellcheck="false" placeholder="a1b2c3d|dev|2026-10-12|feat(editor): 新增多光标选择|120|8|5&#10;b2c3d4e|dev|2026-10-13|fix(map): 修复点位聚合偏移|36|12|2"></textarea>
-      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short --numstat</code> · 数据只在本地处理 · 最多演示 400 条<br><code>--numstat</code> 才会带上增删行数，烟花大小才等于真实改动量<br>空格 播放/暂停 · R 重播 · H 隐藏界面</div>
+      <div class="hint">在仓库里运行：<code>git log --pretty=format:'%h|%an|%ad|%s' --date=short --numstat</code> · 数据只在本地处理 · 最多演示 400 条<br><code>--numstat</code> 才会带上增删行数，烟花大小才等于真实改动量<br>空格 播放/暂停 · R 重播 · ←/→ 步进 · H 隐藏界面 · 支持 #log= 链接直达</div>
       <div class="actions">
         <button id="btn-demo" class="btn ghost">看示例</button>
         <button id="btn-start" class="btn primary">生成我的烟花</button>
@@ -511,7 +532,9 @@
       <button type="button" data-speed="2">2×</button>
     </div>
     <button id="btn-sound" class="icon-btn" aria-label="开启音效"></button>
+    <button id="btn-full" class="icon-btn" aria-label="全屏"></button>
     <button id="btn-poster" class="btn small">导出海报</button>
+    <button id="btn-record" class="btn small">录制视频</button>
     <button id="btn-new" class="btn small">换一段</button>
   </div>
 
@@ -520,6 +543,7 @@
     <div class="byline">BUILT WITH TRAE</div>
   </div>
   <div id="toast" role="status"></div>
+  <div id="sr-status" class="visually-hidden" aria-live="polite"></div>
 
 <script>
 (function () {
@@ -529,6 +553,8 @@
   const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
   const lerp = (a, b, t) => a + (b - a) * t;
   const easeOutCubic = (t) => 1 - Math.pow(1 - t, 3);
+  // 系统「减弱动态效果」偏好：关闭氛围烟花、减半火花、收敛终场粒子运动
+  const REDUCED = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
 
   function mulberry32(a) {
     return function () {
@@ -843,7 +869,10 @@
     launchIdx: 0,
     burstCount: 0,
     labelBoxes: [],
-    capOn: false
+    capOn: false,
+    weekMinT: 0,
+    weekCount: 1,
+    weekLaunch: null
   };
 
   const rockets = [];
@@ -853,7 +882,16 @@
   let scrubbing = false;
   let ambientClock = 0;
   let ambientNext = 0.6;
+  // 氛围火箭的确定性序号（hash 派生轨迹方案的一部分）
   let ambientSeq = 0;
+  // 终场定形后的离屏缓存：永久停留阶段每帧只需 1 次 drawImage
+  let finaleCache = null;
+  let finaleCacheReady = false;
+  // 点亮窗户的 Path2D 缓存，key = 已绽放数|补光数|窗户总数
+  let winCache = { key: "", coreG: null, coreA: null, haloG: null, haloA: null };
+  // HUD 节流：仅当显示内容变化时才写 DOM
+  let hudLastSec = -1;
+  let hudLastSeek = -1;
 
   function resize() {
     DPR = Math.min(2, window.devicePixelRatio || 1);
@@ -943,6 +981,9 @@
     });
     if (minT === Infinity) { minT = Date.UTC(2026, 0, 5); maxT = minT + 60 * DAY; }
     const weekCount = Math.max(1, Math.ceil((maxT - minT) / DAY / 7));
+    state.weekMinT = minT;
+    state.weekCount = weekCount;
+    state.weekLaunch = [];
     const weekAgg = new Array(weekCount).fill(0);
     let maxWeek = 1;
     commits.forEach(function (c) {
@@ -1013,11 +1054,18 @@
         const bh = layer.hMin + k * (layer.hMax - layer.hMin);
         const cols = Math.max(1, Math.floor((bw - 10) / 10));
         const rows = Math.max(1, Math.floor((bh - 12) / 14));
-        buildings.push({ x: bx, bw, bh, top: layer.baseY - bh, rows, cols });
+        buildings.push({ x: bx, bw: bw, bh: bh, top: layer.baseY - bh, rows: rows, cols: cols, w: w });
         bx += bw + 6 + lr() * 14;
       }
       const litCells = [];
       buildings.forEach(function (b) {
+        // 楼顶发射点：楼覆盖它横跨的整个周区间（周数多于楼数时，每周仍有楼顶可发）
+        const wFrom = clamp(Math.floor((b.x / W) * weekCount), 0, weekCount - 1);
+        const wTo = clamp(Math.floor(((b.x + b.bw) / W) * weekCount), 0, weekCount - 1);
+        for (let w = wFrom; w <= wTo; w += 1) {
+          const lp = state.weekLaunch[w];
+          if (!lp || b.bh > lp.bh) state.weekLaunch[w] = { x: clamp(b.x + b.bw / 2, 8, W - 8), y: b.top, bh: b.bh };
+        }
         bgx.fillStyle = layer.color;
         bgx.fillRect(b.x, b.top, b.bw, b.bh);
         if (lr() < 0.22) bgx.fillRect(b.x + b.bw * 0.5, b.top - 6 - lr() * 12, 1.5, 10);
@@ -1032,6 +1080,10 @@
           }
         }
       });
+      // 楼缝可能宽于一个周带宽 → 缝隙周借用左侧相邻楼顶，保证每周都有发射点
+      for (let w = 1; w < weekCount; w += 1) {
+        if (!state.weekLaunch[w]) state.weekLaunch[w] = state.weekLaunch[w - 1];
+      }
       // 全城可点亮窗户都入池（超量时均匀抽稀），保证终场整座城市都亮起来
       const cap = 1200;
       const pool = litCells.length > cap
@@ -1040,7 +1092,39 @@
       pool.forEach(function (c, i) {
         city.windows.push({ x: c.x, y: c.y, w: 3, h: 4, color: i % 2 === 0 ? "#43f0a4" : "#ffb454" });
       });
+
+      // 为每个 commit 贪心分配「爆炸点正下方」的未占用窗户：
+      // 垂直距离是天空到楼顶的几何固有量，视觉因果落在水平对齐上，故水平距离加权
+      planTrajectories(commits);
+      const assigned = new Array(pool.length).fill(false);
+      commits.forEach(function (c) {
+        const tx = W * c.ntx;
+        const ty = H * c.nty;
+        let best = -1;
+        let bestD = Infinity;
+        for (let i = 0; i < pool.length; i += 1) {
+          if (assigned[i]) continue;
+          const dx = pool[i].x - tx;
+          const dy = pool[i].y - ty;
+          const d = dx * dx + dy * dy * 0.09;
+          if (d < bestD) { bestD = d; best = i; }
+        }
+        c.winIndex = best;
+        if (best >= 0) assigned[best] = true;
+      });
+      // 未分配窗户的终场补光顺序（洗牌打散，补光不再呈机械左→右）
+      const fillOrder = [];
+      for (let i = 0; i < pool.length; i += 1) if (!assigned[i]) fillOrder.push(i);
+      const fr = mulberry32(1024 + Math.round(W));
+      for (let i = fillOrder.length - 1; i > 0; i -= 1) {
+        const j = (fr() * (i + 1)) | 0;
+        const tmp = fillOrder[i];
+        fillOrder[i] = fillOrder[j];
+        fillOrder[j] = tmp;
+      }
+      city.fillOrder = fillOrder;
     });
+    winCache.key = "";
 
     bgx.fillStyle = "rgba(67,240,164,.12)";
     bgx.fillRect(0, H * 0.945, W, 1);
@@ -1052,6 +1136,24 @@
     bgx.fillRect(0, 0, W, H);
   }
 
+  // commit hash → 弹道种子（与 spawnRocket 共用，保证「计划轨迹 = 实际轨迹」）
+  function trajSeed(c) {
+    return (parseInt(String(c.hash || "").slice(0, 6), 16) || 1) * 31 + 7;
+  }
+
+  // 为每个 commit 预生成归一化弹道（hash 播种、与 spawnRocket 消费序列同源）：
+  // buildScene 据此分配「就近窗户」，seek 重放、resize、海报导出全部可复现
+  function planTrajectories(commits) {
+    commits.forEach(function (c) {
+      if (c.nsx != null) return; // 已规划过的不重算（resize 保持同一轨迹）
+      const rr = mulberry32(trajSeed(c));
+      c.nsx = 0.1 + rr() * 0.8;
+      c.nsy = 0.93 + rr() * 0.03;
+      c.ntx = clamp(c.nsx + (rr() - 0.5) * 0.14, 0.07, 0.93);
+      c.nty = 0.17 + rr() * 0.32;
+    });
+  }
+
   function prepare(commits) {
     state.commits = commits;
     commits.forEach(function (c) {
@@ -1060,6 +1162,7 @@
         c.mag = clamp(Math.log1p(raw) / Math.log1p(900), 0.08, 1);
       }
     });
+    planTrajectories(commits);
     const n = commits.length;
     const sr = mulberry32(1024 + n * 7);
     const gap = clamp(24 / Math.max(1, n), 0.12, 0.9);
@@ -1105,6 +1208,8 @@
     state.started = true;
     state.playing = true;
     state.time = 0;
+    hudLastSec = -1;
+    hudLastSeek = -1;
     document.body.classList.add("started");
     document.body.classList.remove("cinema");
     $("#intro").classList.add("hide");
@@ -1115,6 +1220,7 @@
     const feat = commits.filter((c) => c.type === "feat").length;
     const fix = commits.filter((c) => c.type === "fix").length;
     showToast("已载入 " + commits.length + " 个提交 · " + feat + " feat · " + fix + " fix");
+    announce("已载入 " + commits.length + " 个提交，开始播放");
   }
 
   function seek(target, silent) {
@@ -1169,14 +1275,42 @@
     }
   }
 
+  // commit 日期 → 所在周索引（与 buildScene 的聚合口径一致）
+  function weekOf(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return -1;
+    const t = Date.UTC(+date.slice(0, 4), +date.slice(5, 7) - 1, +date.slice(8, 10));
+    return clamp(Math.floor((t - state.weekMinT) / 86400000 / 7), 0, state.weekCount - 1);
+  }
+
   function spawnRocket(c, ambient) {
     // 用提交哈希派生确定性随机：同一段 log 每次重播、每张导出海报都完全一致
-    const rnd = ambient ? 7919 + (ambientSeq += 1) : ((parseInt(c.hash.slice(0, 6), 16) || 1) * 31 + 7);
+    const rnd = ambient ? 7919 + (ambientSeq += 1) : trajSeed(c);
     const rr = mulberry32(rnd);
-    const startX = W * (0.1 + rr() * 0.8);
-    const startY = H * (0.93 + rr() * 0.03);
-    const targetX = clamp(startX + (rr() - 0.5) * W * 0.14, W * 0.07, W * 0.93);
-    const targetY = H * (ambient ? 0.24 + rr() * 0.24 : 0.17 + rr() * 0.32);
+    let startX;
+    let startY;
+    let targetX;
+    let targetY;
+    if (ambient) {
+      startX = W * (0.1 + rr() * 0.8);
+      startY = H * (0.93 + rr() * 0.03);
+      targetX = clamp(startX + (rr() - 0.5) * W * 0.14, W * 0.07, W * 0.93);
+      targetY = H * (0.24 + rr() * 0.24);
+    } else {
+      // 计划轨迹（planTrajectories）与本函数同一 hash 种子 → 计划/实际爆炸点一致
+      rr(); rr(); rr(); rr(); // 对齐原消费序列，保持 seed 取值不变
+      const wl = state.weekLaunch;
+      const w = weekOf(c.date);
+      if (wl && w >= 0 && wl[w]) {
+        // 从「自己那一周」的最高楼楼顶发射
+        startX = clamp(wl[w].x + (c.nsx - 0.5) * 32, 8, W - 8);
+        startY = wl[w].y;
+      } else {
+        startX = W * c.nsx;
+        startY = H * c.nsy;
+      }
+      targetX = W * c.ntx;
+      targetY = H * c.nty;
+    }
     rockets.push({
       c: c,
       ambient: !!ambient,
@@ -1209,7 +1343,8 @@
       }
     }
     const scale = clamp(Math.min(W, H) / 900, 0.62, 1.45);
-    const count = Math.round((70 + mag * 130) * (rocket.ambient ? 0.62 : 1));
+    let count = Math.round((70 + mag * 130) * (rocket.ambient ? 0.62 : 1));
+    if (REDUCED) count = count >> 1; // 减弱动态效果：火花减半
     // 火花散布也用同一颗确定性种子，保证重播/海报逐帧一致
     const rr = mulberry32((rocket.rnd || 1) + 13);
     for (let i = 0; i < count; i += 1) {
@@ -1233,7 +1368,7 @@
         seed: rr() * 10
       });
     }
-    if (!rocket.ambient && mag > 0.55) {
+    if (!rocket.ambient && mag > 0.55 && !REDUCED) {
       const ringCount = 34;
       for (let i = 0; i < ringCount; i += 1) {
         const a = (i / ringCount) * Math.PI * 2;
@@ -1279,8 +1414,13 @@
     if (!state.finaleStarted && state.time >= state.finaleStart) {
       state.finaleStarted = true;
       buildFinale();
+      if (visual) {
+        playFinaleSwell();
+        announce("终场开始：1024 个粒子从整座城市的窗户升起");
+      }
     }
     if (state.time >= state.duration) {
+      if (state.playing && visual) announce("播放结束");
       state.playing = false;
       updatePlayButton();
     }
@@ -1442,14 +1582,15 @@
         py: sy,
         tx: p.x,
         ty: p.y,
-        delay: sr() * 0.7,
-        rise: 2 + sr() * 0.4,
+        delay: REDUCED ? 0.1 : sr() * 0.7,
+        rise: REDUCED ? 1.2 : 2 + sr() * 0.4,
         tPrev: -1,
         color: pool[(sr() * pool.length) | 0],
         size: 1 + sr() * 1.4,
         seed: sr() * 10
       };
     });
+    finaleCacheReady = false; // 粒子重排，定形缓存作废
   }
 
   function updateFinaleCaption() {
@@ -1461,34 +1602,46 @@
   }
 
   function drawLitWindows() {
-    const total = city.windows.length;
-    let count = Math.min(state.burstCount, total);
+    // 点亮集合 = 已绽放 commit 的就近窗（winIndex）+ 终场补光窗（fillOrder 前缀）
+    const commits = state.commits;
+    const bc = Math.min(state.burstCount, commits.length);
+    const fillOrder = city.fillOrder || [];
+    let fill = 0;
     if (state.finaleStarted) {
       const p = clamp((state.time - state.finaleStart) / 1.2, 0, 1);
-      count = Math.round(lerp(count, total, easeOutCubic(p)));
+      fill = Math.round(lerp(0, fillOrder.length, easeOutCubic(p)));
     }
-    if (count <= 0) return;
-    // 按颜色批量走 Path2D：上千扇窗从 2×N 次 fillRect 降到 4 次 fill
-    const coreG = new Path2D();
-    const coreA = new Path2D();
-    const haloG = new Path2D();
-    const haloA = new Path2D();
-    for (let i = 0; i < count; i += 1) {
-      const w = city.windows[i];
-      const green = w.color === "#43f0a4";
-      (green ? coreG : coreA).rect(w.x, w.y, w.w, w.h);
-      (green ? haloG : haloA).rect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
+    if (bc <= 0 && fill <= 0) return;
+    // Path2D 缓存：点亮数不变的帧（绝大多数）直接复用，省去上千次 rect
+    const key = bc + "|" + fill + "|" + city.windows.length;
+    if (winCache.key !== key) {
+      const coreG = new Path2D();
+      const coreA = new Path2D();
+      const haloG = new Path2D();
+      const haloA = new Path2D();
+      const addWin = function (w) {
+        if (!w) return;
+        const green = w.color === "#43f0a4";
+        (green ? coreG : coreA).rect(w.x, w.y, w.w, w.h);
+        (green ? haloG : haloA).rect(w.x - 2, w.y - 2, w.w + 4, w.h + 4);
+      };
+      for (let i = 0; i < bc; i += 1) {
+        const wi = commits[i].winIndex;
+        if (wi != null && wi >= 0) addWin(city.windows[wi]);
+      }
+      for (let i = 0; i < fill && i < fillOrder.length; i += 1) addWin(city.windows[fillOrder[i]]);
+      winCache = { key: key, coreG: coreG, coreA: coreA, haloG: haloG, haloA: haloA };
     }
     fx.globalAlpha = 0.12;
     fx.fillStyle = "#43f0a4";
-    fx.fill(haloG);
+    fx.fill(winCache.haloG);
     fx.fillStyle = "#ffb454";
-    fx.fill(haloA);
+    fx.fill(winCache.haloA);
     fx.globalAlpha = 0.85;
     fx.fillStyle = "#43f0a4";
-    fx.fill(coreG);
+    fx.fill(winCache.coreG);
     fx.fillStyle = "#ffb454";
-    fx.fill(coreA);
+    fx.fill(winCache.coreA);
     fx.globalAlpha = 1;
   }
 
@@ -1512,23 +1665,34 @@
   }
 
   function drawSparks() {
+    // 按 (颜色, alpha 8 档) 分桶合批：峰值 2900 火花从 ~8700 次调用降到每桶 2 次
+    const buckets = new Map();
     for (let i = 0; i < sparks.length; i += 1) {
       const s = sparks[i];
       const lifeRatio = s.life / s.ttl;
       let alpha = Math.pow(1 - lifeRatio, 1.35);
       if (s.twinkle) alpha *= 0.62 + 0.38 * Math.sin(s.life * 28 + s.seed * 9);
       if (alpha <= 0) continue;
-      fx.globalAlpha = alpha * 0.35;
-      fx.strokeStyle = s.color;
-      fx.lineWidth = 1;
-      fx.beginPath();
-      fx.moveTo(s.px, s.py);
-      fx.lineTo(s.x, s.y);
-      fx.stroke();
-      fx.globalAlpha = alpha;
-      fx.fillStyle = s.color;
-      fx.fillRect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
+      const aq = Math.min(8, Math.max(1, Math.round(alpha * 8)));
+      const key = s.color + "|" + aq;
+      let b = buckets.get(key);
+      if (!b) {
+        b = { color: s.color, alpha: aq / 8, lines: new Path2D(), dots: new Path2D() };
+        buckets.set(key, b);
+      }
+      b.lines.moveTo(s.px, s.py);
+      b.lines.lineTo(s.x, s.y);
+      b.dots.rect(s.x - s.size / 2, s.y - s.size / 2, s.size, s.size);
     }
+    fx.lineWidth = 1;
+    buckets.forEach(function (b) {
+      fx.strokeStyle = b.color;
+      fx.fillStyle = b.color;
+      fx.globalAlpha = b.alpha * 0.35;
+      fx.stroke(b.lines);
+      fx.globalAlpha = b.alpha;
+      fx.fill(b.dots);
+    });
     fx.globalAlpha = 1;
   }
 
@@ -1551,10 +1715,59 @@
     fx.globalAlpha = 1;
   }
 
+  // 把定形后的 1024 字形渲染进离屏缓存：永久停留阶段每帧仅 1 次 drawImage
+  function renderFinaleCache() {
+    if (!finaleCache) finaleCache = document.createElement("canvas");
+    finaleCache.width = Math.round(W * DPR);
+    finaleCache.height = Math.round(H * DPR);
+    const g = finaleCache.getContext("2d");
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    const dots = new Map();
+    const halos = new Map();
+    for (let i = 0; i < finaleParticles.length; i += 1) {
+      const p = finaleParticles[i];
+      let d = dots.get(p.color);
+      if (!d) { d = new Path2D(); dots.set(p.color, d); }
+      let h = halos.get(p.color);
+      if (!h) { h = new Path2D(); halos.set(p.color, h); }
+      d.rect(p.tx - p.size / 2, p.ty - p.size / 2, p.size, p.size);
+      h.rect(p.tx - p.size * 0.9, p.ty - p.size * 0.9, p.size * 1.8, p.size * 1.8);
+    }
+    halos.forEach(function (path, color) {
+      g.globalAlpha = 0.07;
+      g.fillStyle = color;
+      g.fill(path);
+    });
+    dots.forEach(function (path, color) {
+      g.globalAlpha = 1;
+      g.fillStyle = color;
+      g.fill(path);
+    });
+    g.globalAlpha = 1;
+  }
+
   function drawFinale() {
     if (!state.finaleStarted) return;
     const t = state.time - state.finaleStart;
     if (t < 0) return;
+    // 全部定形后走离屏缓存 + 整体呼吸（替代逐粒子相位闪烁，视觉差异细微）
+    let allSettled = finaleParticles.length > 0;
+    for (let i = 0; i < finaleParticles.length; i += 1) {
+      if (t - finaleParticles[i].delay < finaleParticles[i].rise) { allSettled = false; break; }
+    }
+    if (allSettled) {
+      if (!finaleCacheReady) {
+        renderFinaleCache();
+        finaleCacheReady = true;
+      }
+      fx.globalAlpha = 0.82 + 0.18 * Math.sin(t * 10);
+      fx.drawImage(finaleCache, 0, 0, W, H);
+      fx.globalAlpha = 1;
+      return;
+    }
+    finaleCacheReady = false;
+    // 上升期：按 (颜色, alpha 8 档) 分桶合批
+    const buckets = new Map();
     for (let i = 0; i < finaleParticles.length; i += 1) {
       const p = finaleParticles[i];
       const local = t - p.delay;
@@ -1568,32 +1781,41 @@
         x = lerp(p.sx, p.tx, easeOutCubic(q)) + Math.sin(q * Math.PI * 3 + p.seed) * 2 * (1 - q);
         alpha = clamp(local * 3.5, 0, 1);
       } else {
-        // 定形后永久停留，不再飞散或淡出
         x = p.tx;
         y = p.ty;
         alpha = 0.82 + 0.18 * Math.sin(local * 10 + p.seed);
       }
       if (alpha <= 0) continue;
+      const aq = Math.min(8, Math.max(1, Math.round(alpha * 8)));
+      const key = p.color + "|" + aq;
+      let b = buckets.get(key);
+      if (!b) {
+        b = { color: p.color, alpha: aq / 8, lines: new Path2D(), dots: new Path2D(), halos: new Path2D() };
+        buckets.set(key, b);
+      }
       // 拖尾只连相邻帧：seek 之后首帧的上一位置是陈旧的，直接跳过以免拉出长条
       const step = p.tPrev < 0 ? 0 : local - p.tPrev;
       if (step > 0 && step < 0.25 && Math.abs(x - p.px) + Math.abs(y - p.py) > 0.6) {
-        fx.globalAlpha = alpha * 0.35;
-        fx.strokeStyle = p.color;
-        fx.lineWidth = 1;
-        fx.beginPath();
-        fx.moveTo(p.px, p.py);
-        fx.lineTo(x, y);
-        fx.stroke();
+        b.lines.moveTo(p.px, p.py);
+        b.lines.lineTo(x, y);
       }
       p.tPrev = local;
       p.px = x;
       p.py = y;
-      fx.globalAlpha = alpha;
-      fx.fillStyle = p.color;
-      fx.fillRect(x - p.size / 2, y - p.size / 2, p.size, p.size);
-      fx.globalAlpha = alpha * 0.07;
-      fx.fillRect(x - p.size * 0.9, y - p.size * 0.9, p.size * 1.8, p.size * 1.8);
+      b.dots.rect(x - p.size / 2, y - p.size / 2, p.size, p.size);
+      b.halos.rect(x - p.size * 0.9, y - p.size * 0.9, p.size * 1.8, p.size * 1.8);
     }
+    fx.lineWidth = 1;
+    buckets.forEach(function (b) {
+      fx.strokeStyle = b.color;
+      fx.fillStyle = b.color;
+      fx.globalAlpha = b.alpha * 0.35;
+      fx.stroke(b.lines);
+      fx.globalAlpha = b.alpha;
+      fx.fill(b.dots);
+      fx.globalAlpha = b.alpha * 0.07;
+      fx.fill(b.halos);
+    });
     fx.globalAlpha = 1;
   }
 
@@ -1610,6 +1832,7 @@
   }
 
   function updateAmbient(dt) {
+    if (REDUCED) return; // 减弱动态效果：首页不再自动放氛围烟花
     ambientClock += dt;
     if (ambientClock > ambientNext) {
       ambientNext = ambientClock + 1.7 + Math.random() * 2.4;
@@ -1647,10 +1870,19 @@
 
   function updateHUD() {
     if (!state.started) return;
-    $("#time").textContent = fmt(state.time) + " / " + fmt(state.duration);
+    // 节流：显示内容变化时才写 DOM（时间文本 1 秒一变，进度值 0-1000 整数）
+    const sec = Math.floor(state.time);
+    if (sec !== hudLastSec) {
+      hudLastSec = sec;
+      $("#time").textContent = fmt(state.time) + " / " + fmt(state.duration);
+      $("#seek").setAttribute("aria-valuetext", fmt(state.time) + "，共 " + fmt(state.duration));
+    }
     if (!scrubbing) {
       const value = state.duration > 0 ? Math.round((state.time / state.duration) * 1000) : 0;
-      $("#seek").value = String(clamp(value, 0, 1000));
+      if (value !== hudLastSeek) {
+        hudLastSeek = value;
+        $("#seek").value = String(clamp(value, 0, 1000));
+      }
     }
     updateFinaleCaption();
   }
@@ -1685,7 +1917,9 @@
     pause: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" fill="currentColor"/><rect x="13.4" y="5" width="3.6" height="14" fill="currentColor"/></svg>',
     replay: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M12 5a7 7 0 1 1-6.4 4.2" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><path d="M12 2.6v4.6h4.6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
     soundOn: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 8.5a5 5 0 0 1 0 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
-    soundOff: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>'
+    soundOff: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/><path d="M16 9.5l5 5M21 9.5l-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    expand: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    compress: '<svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
   };
 
   let actx = null;
@@ -1734,6 +1968,71 @@
     n.stop(t + 0.32);
   }
 
+  // 终场音景：分音上行 + 噪声高通 sweep，定形时刻一记柔和 ping（约 2.7s）
+  function playFinaleSwell() {
+    if (state.muted || !actx) return;
+    if (actx.state === "suspended") actx.resume();
+    const t = actx.currentTime;
+    [220, 330, 440].forEach(function (f, i) {
+      const o = actx.createOscillator();
+      const g = actx.createGain();
+      o.type = "sine";
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.exponentialRampToValueAtTime(f * 2, t + 2.0);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.05 + i * 0.012, t + 0.5);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+      o.connect(g);
+      g.connect(master);
+      o.start(t);
+      o.stop(t + 2.5);
+    });
+    const n = actx.createBufferSource();
+    n.buffer = noiseBuffer;
+    n.loop = true;
+    const hp = actx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.setValueAtTime(400, t);
+    hp.frequency.exponentialRampToValueAtTime(3200, t + 2.0);
+    const ng = actx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.05, t + 1.2);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + 2.3);
+    n.connect(hp);
+    hp.connect(ng);
+    ng.connect(master);
+    n.start(t);
+    n.stop(t + 2.4);
+    const pt = t + 2.7;
+    const o2 = actx.createOscillator();
+    const g2 = actx.createGain();
+    o2.type = "sine";
+    o2.frequency.setValueAtTime(880, pt);
+    g2.gain.setValueAtTime(0.0001, pt);
+    g2.gain.exponentialRampToValueAtTime(0.12, pt + 0.05);
+    g2.gain.exponentialRampToValueAtTime(0.0001, pt + 0.9);
+    o2.connect(g2);
+    g2.connect(master);
+    o2.start(pt);
+    o2.stop(pt + 1.0);
+  }
+
+  // 屏幕阅读器播报（先清空再写，确保相同文本也能重复读出）
+  function announce(msg) {
+    const el = $("#sr-status");
+    if (!el) return;
+    el.textContent = "";
+    window.setTimeout(function () { el.textContent = msg; }, 30);
+  }
+
+  function updateFullButton() {
+    const btn = $("#btn-full");
+    if (!btn) return;
+    const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
+    btn.innerHTML = fs ? ICONS.compress : ICONS.expand;
+    btn.setAttribute("aria-label", fs ? "退出全屏" : "全屏");
+  }
+
   let toastTimer = 0;
   function showToast(msg) {
     const el = $("#toast");
@@ -1772,7 +2071,9 @@
     const savedTime = state.time;
     const savedPlaying = state.playing;
     state.playing = false;
-    seek(state.finaleStart + 3.1, true);
+    // 已进入终场 → 截 1024 钱景帧；仍在烟花段 → 截当前这一帧
+    const moneyShot = state.time >= state.finaleStart;
+    if (moneyShot) seek(state.finaleStart + 3.1, true);
     draw();
     const w = 1600;
     const h = 1000;
@@ -1840,13 +2141,89 @@
       a.click();
       a.remove();
       window.setTimeout(function () { URL.revokeObjectURL(url); }, 0);
-      showToast("已导出 1024 海报");
+      showToast(moneyShot ? "已导出 1024 海报" : "已导出当前画面");
     }, "image/png");
     seek(savedTime, true);
     state.playing = savedPlaying;
     updateHUD();
     updatePlayButton();
     draw();
+  }
+
+  // ---- 视频导出：离屏合成 bg+fx → captureStream → MediaRecorder(WebM) ----
+  let recorder = null;
+  let recordRAF = 0;
+  let recordChunks = [];
+
+  function recordVideo() {
+    if (recorder) { // 录制中再点 = 提前停止
+      recorder.stop();
+      return;
+    }
+    if (!state.started || !window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) return;
+    const w = 1600;
+    const h = 1000;
+    const rc = document.createElement("canvas");
+    rc.width = w;
+    rc.height = h;
+    const g = rc.getContext("2d");
+    const scale = Math.min(w / W, h / H);
+    const dw = W * scale;
+    const dh = H * scale;
+    const dx = (w - dw) / 2;
+    const dy = (h - dh) / 2;
+    const stream = rc.captureStream(60);
+    // 若已开音效，把爆炸声一并录进去
+    if (actx && !state.muted) {
+      try {
+        const dest = actx.createMediaStreamDestination();
+        master.connect(dest);
+        dest.stream.getAudioTracks().forEach(function (tr) { stream.addTrack(tr); });
+      } catch (e) { /* 无音轨也能录 */ }
+    }
+    const mime = MediaRecorder.isTypeSupported("video/webm;codecs=vp9") ? "video/webm;codecs=vp9" : "video/webm";
+    recordChunks = [];
+    recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8000000 });
+    recorder.ondataavailable = function (e) { if (e.data && e.data.size) recordChunks.push(e.data); };
+    recorder.onstop = function () {
+      window.cancelAnimationFrame(recordRAF);
+      const blob = new Blob(recordChunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.download = "commit-fireworks-1024.webm";
+      a.href = url;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(function () { URL.revokeObjectURL(url); }, 0);
+      recorder = null;
+      const btn = $("#btn-record");
+      btn.classList.remove("recording");
+      btn.textContent = "录制视频";
+      showToast("已导出 " + (blob.size / 1048576).toFixed(1) + " MB 视频");
+    };
+    // 从头录到尾；每帧把 bg+fx 合成进录制画布
+    seek(0, true);
+    state.playing = true;
+    updatePlayButton();
+    const btn = $("#btn-record");
+    btn.classList.add("recording");
+    btn.textContent = "停止录制";
+    showToast("录制中 · 再点一次提前停止");
+    const drawFrame = function () {
+      if (!recorder) return;
+      g.fillStyle = "#040506";
+      g.fillRect(0, 0, w, h);
+      g.drawImage(bg, dx, dy, dw, dh);
+      g.drawImage(fxc, dx, dy, dw, dh);
+      if (state.time >= state.duration) {
+        recorder.stop();
+        return;
+      }
+      recordRAF = window.requestAnimationFrame(drawFrame);
+    };
+    recorder.start();
+    recordRAF = window.requestAnimationFrame(drawFrame);
   }
 
   function useDemo() {
@@ -1878,6 +2255,40 @@
   $("#btn-play").addEventListener("click", togglePlay);
   $("#btn-sound").addEventListener("click", toggleSound);
   $("#btn-poster").addEventListener("click", poster);
+  $("#btn-record").addEventListener("click", recordVideo);
+  if (!window.MediaRecorder || !HTMLCanvasElement.prototype.captureStream) {
+    $("#btn-record").style.display = "none";
+  }
+  // 全屏切换（不支持的环境直接隐藏按钮）
+  (function initFullscreen() {
+    const doc = document.documentElement;
+    const req = doc.requestFullscreen || doc.webkitRequestFullscreen;
+    if (!req) {
+      $("#btn-full").style.display = "none";
+      return;
+    }
+    $("#btn-full").addEventListener("click", function () {
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        if (exit) {
+          try {
+            const p = exit.call(document);
+            if (p && p.catch) p.catch(function () {});
+          } catch (e) { /* 忽略 */ }
+        }
+        return;
+      }
+      try {
+        const p = req.call(doc);
+        if (p && p.catch) p.catch(function () { showToast("当前环境不允许全屏"); });
+      } catch (e) {
+        showToast("当前环境不允许全屏");
+      }
+    });
+    document.addEventListener("fullscreenchange", updateFullButton);
+    document.addEventListener("webkitfullscreenchange", updateFullButton);
+    updateFullButton();
+  })();
   $("#btn-new").addEventListener("click", function () {
     state.playing = false;
     state.started = false;
@@ -1932,6 +2343,14 @@
     if (e.code === "Space") {
       e.preventDefault();
       if (state.started) togglePlay();
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      if (!state.started) return;
+      e.preventDefault();
+      // ←/→ 步进 0.5s，Shift 组合 ±5s（按住可靠系统自动重复连续步进）
+      const delta = (e.shiftKey ? 5 : 0.5) * (e.key === "ArrowRight" ? 1 : -1);
+      state.playing = false;
+      seek(state.time + delta, false);
+      updatePlayButton();
     } else if (e.key === "h" || e.key === "H") {
       document.body.classList.toggle("cinema");
     } else if (e.key === "r" || e.key === "R") {
@@ -1964,6 +2383,24 @@
   resize();
   requestAnimationFrame(frame);
 
+  // #log=<encodeURIComponent(git log)> 链接直达：打开即自动播放（只读 hash，≤8KB）
+  (function bootFromHash() {
+    const h = window.location.hash || "";
+    if (h.indexOf("#log=") !== 0) return;
+    if (h.length > 8200) {
+      showToast("链接数据过长，已忽略");
+      return;
+    }
+    let text = "";
+    try {
+      text = decodeURIComponent(h.slice(5));
+    } catch (e) {
+      return;
+    }
+    const commits = parseLog(text);
+    if (commits.length) start(commits);
+  })();
+
   window.__demo = {
     state: state,
     buildDemo: buildDemo,
@@ -1971,7 +2408,13 @@
     start: start,
     seek: function (t) { seek(t, false); },
     poster: poster,
-    useDemo: useDemo
+    useDemo: useDemo,
+    record: recordVideo,
+    // 以下为自动化验证用的只读钩子
+    draw: draw,
+    reduced: REDUCED,
+    city: function () { return city; },
+    effects: function () { return { rockets: rockets.length, sparks: sparks.length, finale: finaleParticles.length }; }
   };
 })();
 </script>
